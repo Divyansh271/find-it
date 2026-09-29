@@ -1,62 +1,77 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { LandingPage } from './components/LandingPage';
-import { LostFeedPlaceholder } from './components/LostFeedPlaceholder';
+import { LostSection } from './components/LostSection';
+import { CreateLostPost } from './components/CreateLostPost';
+import { PostDetail } from './components/PostDetail';
 import { FoundFeedPlaceholder } from './components/FoundFeedPlaceholder';
 
-type RoutePath = '/' | '/lost' | '/found';
-
 export default function App() {
-  const [currentPath, setCurrentPath] = useState<RoutePath>(() => {
-    const path = window.location.pathname;
-    if (path === '/lost') return '/lost';
-    if (path === '/found') return '/found';
-    return '/';
+  const [currentUrl, setCurrentUrl] = useState(() => {
+    return window.location.pathname + window.location.search;
   });
 
   // Sync route changes with browser history
   useEffect(() => {
     const handlePopState = () => {
-      const path = window.location.pathname;
-      if (path === '/lost') setCurrentPath('/lost');
-      else if (path === '/found') setCurrentPath('/found');
-      else setCurrentPath('/');
+      setCurrentUrl(window.location.pathname + window.location.search);
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const navigate = (path: RoutePath) => {
-    if (window.location.pathname !== path) {
-      window.history.pushState({}, '', path);
+  const navigate = (url: string) => {
+    if (window.location.pathname + window.location.search !== url) {
+      window.history.pushState({}, '', url);
     }
-    setCurrentPath(path);
+    setCurrentUrl(url);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  // Route Resolver
+  const pathname = currentUrl.split('?')[0];
+  const isPostNew = pathname === '/post/new';
+  const isPostDetail = pathname.startsWith('/post/') && !isPostNew;
+  const postId = isPostDetail ? pathname.replace('/post/', '') : null;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans selection:bg-slate-900 selection:text-white">
       {/* Top Header with findIt logo & dummy auth buttons */}
       <Navbar onNavigateHome={() => navigate('/')} />
 
-      {/* Main View Area based on path */}
+      {/* Main Viewport Routing */}
       <main className="flex-1 flex flex-col">
-        {currentPath === '/' && (
+        {pathname === '/' && (
           <LandingPage
             onSelectLost={() => navigate('/lost')}
             onSelectFound={() => navigate('/found')}
           />
         )}
 
-        {currentPath === '/lost' && (
-          <LostFeedPlaceholder
+        {pathname === '/lost' && (
+          <LostSection
             onBackToHome={() => navigate('/')}
-            onNavigateToFound={() => navigate('/found')}
+            onCreateLostPost={() => navigate('/post/new?type=lost')}
+            onSelectPost={(id) => navigate(`/post/${id}`)}
           />
         )}
 
-        {currentPath === '/found' && (
+        {isPostNew && (
+          <CreateLostPost
+            onBackToLost={() => navigate('/lost')}
+            onSelectPost={(id) => navigate(`/post/${id}`)}
+          />
+        )}
+
+        {isPostDetail && postId && (
+          <PostDetail
+            postId={postId}
+            onBackToLost={() => navigate('/lost')}
+          />
+        )}
+
+        {pathname === '/found' && (
           <FoundFeedPlaceholder
             onBackToHome={() => navigate('/')}
             onNavigateToLost={() => navigate('/lost')}
