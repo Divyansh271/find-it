@@ -55,8 +55,8 @@ This document is the **single source of truth** for developers, Codex, Claude, a
 | `/post/new?type=lost` | `CreateLostPost.tsx` | Protected | Collects `title` (required), `desc_text` (required), optional tags, images. Suggests matching FOUND posts upon submission. |
 | `/post/new?type=found` | `CreateFoundPost.tsx` | Protected | Collects `title` (required), `desc_text` (required), optional tags, images. Suggests matching LOST posts upon submission. |
 | `/post/[id]` | `PostDetail.tsx` | Public | Full post detail view. Protected action: `Request conversation`. |
-| `/auth/login` | `LoginPage.tsx` | Public | Collects email & password. Preserves `redirect` query parameter. |
-| `/auth/signup` | `SignupPage.tsx` | Public | Collects `displayName` (2-30 chars, privacy-first), email, password. Preserves `redirect`. |
+| `/auth/login` | `LoginPage.tsx` | Public | Supabase Auth sign-in with email & password. Preserves `redirect` query parameter. |
+| `/auth/signup` | `SignupPage.tsx` | Public | Supabase Auth registration with `displayName` (2-30 chars, stored in user metadata), email, password. Preserves `redirect`. |
 | `/dashboard` | — | Protected | Next phase: My posts, outgoing requests, incoming requests. |
 | `/chat/[convo_id]` | — | Protected | Next phase: Realtime chat once request is accepted. |
 | `/profile` | — | Protected | Next phase: Student display name & read-only trust score. |
@@ -65,9 +65,10 @@ This document is the **single source of truth** for developers, Codex, Claude, a
 
 ## 3. Frontend ↔ Backend Contracts
 
-The frontend interacts with the system strictly through two clean service abstractions. When Supabase is connected by Codex, **only these two service files will be modified**; UI components will remain unchanged.
+The frontend interacts with the system strictly through two clean service abstractions:
 
-### 3.1 Authentication Abstraction (`src/services/authService.ts`)
+### 3.1 Authentication Abstraction (`src/services/authService.ts`) — [CONNECTED TO SUPABASE AUTH]
+Backed by the centralized client in `src/services/supabaseClient.ts`:
 ```typescript
 getCurrentUser(): User | null
 getSession(): Session | null
@@ -82,13 +83,13 @@ onAuthStateChange(callback: (user: User | null) => void): () => void
 export interface User {
   user_id: string;        // UUID from auth.users(id)
   email: string;
-  display_name: string;   // Public student identity (2-30 chars)
+  display_name: string;   // Public student identity (2-30 chars, from raw_user_meta_data)
   trust_score: number;    // Reputation signal, starts at 0
   created_at: string;
 }
 ```
 
-### 3.2 Posts & Search Abstraction (`src/services/postsService.ts`)
+### 3.2 Posts & Search Abstraction (`src/services/postsService.ts`) — [TEMPORARY MOCK / READY FOR POSTGRES]
 ```typescript
 // 1. Found Posts Retrieval (for Lost Section)
 getFoundPosts(): Promise<Post[]>
@@ -115,6 +116,10 @@ getSuggestedLostMatches(foundPost: Post): Promise<Post[]>
 ## 4. Current Implementation Status
 
 ### CURRENTLY IMPLEMENTED
+- **Supabase Auth Integration**: `@supabase/supabase-js` connected via `src/services/supabaseClient.ts`
+- Real email/password login and registration wired to live Supabase Auth instance (`https://gambbvofjmdnjnrhegax.supabase.co`)
+- `displayName` passed through Supabase user metadata (`raw_user_meta_data->>'display_name'`)
+- Session persistence and `onAuthStateChange` synchronization
 - Landing page (`/`)
 - Lost section (`/lost` browsing FOUND posts)
 - Found section (`/found` browsing LOST posts)
@@ -123,14 +128,10 @@ getSuggestedLostMatches(foundPost: Post): Promise<Post[]>
 - Search & multi-filtering by keywords, category, colour, and location
 - Post detail flow (`/post/[id]`) with context-aware back navigation
 - Suggested opposite-type matches on post submission
-- Frontend authentication flow (`/auth/login` and `/auth/signup`)
-- Student display name privacy convention (2-30 characters)
 - Auth guards on `/post/new` and `Request conversation`, with target redirection preservation
-- Stable DAL & Auth abstraction layers with mock persistence
 
 ### NOT YET CONNECTED (Do NOT Claim Implemented)
-- Supabase Auth SDK (`@supabase/supabase-js`)
-- Supabase PostgreSQL database tables
+- Supabase PostgreSQL database tables (`posts`, `profiles`, `conversations`, `messages`)
 - Supabase Storage bucket (for post photos and request images)
 - Supabase Realtime (for messages delivery)
 - Google Gemini API (for AI tag extraction from descriptions)
@@ -141,57 +142,102 @@ getSuggestedLostMatches(foundPost: Post): Promise<Post[]>
 
 ---
 
-## 5. Security & Row Level Security (RLS) Requirements for Codex
+## 5. Security, Database Migrations & Trigger Reference for Codex
 
-When Codex connects Supabase, the following RLS policies must be applied in PostgreSQL:
+When setting up the database in Supabase SQL editor:
 
-### `profiles` Table
-- **Read:** Any authenticated user can read `display_name` and `trust_score`.
-- **Insert:** Auto-created via database trigger on `auth.users` insert (pulls `display_name` from `raw_user_meta_data`).
-- **Update:** A user can update only their **own** `display_name` (`auth.uid() = user_id`).
-- **Forbidden:** Users must **NEVER** directly update their own `trust_score`. Only the secure handover resolution function can increment this.
+### 5.1 `profiles` Table & Trigger Migration
+```sql
+-- 1. Create Profiles Table
+create table public.profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  display_name text not null check (char_length(display_name) between 2 and 30),
+  trust_score int not null default 0,
+  created_at timestamptz default now()
+);
 
-### `posts` Table
-- **Read:** Any authenticated user can read posts.
-- **Insert:** Only authenticated users can insert posts, with `posts.user_id = auth.uid()`.
-- **Update / Delete:** Only the post author can update or delete their own post (`posts.user_id = auth.uid()`).
+-- 2. Enable RLS
+alter table public.profiles enable row level security;
 
-### `conversations` Table
-- **Read / Insert:** Only `owner_id` or `finder_id`. One request per user per post (`UNIQUE(post_id, requested_by)`).
-- **Update:** `accepted` can only be flipped by the participant who is **not** `requested_by`.
+-- 3. RLS Policies
+create policy "Public profiles are readable by authenticated users"
+  on public.profiles for select
+  to authenticated
+  using (true);
 
-### `messages` Table (Realtime)
-- **Insert / Read:** Only `owner_id` or `finder_id` of the parent conversation, and only once `accepted = true`.
+create policy "Users can update their own display_name"
+  on public.profiles for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- 4. Automatic Profile Creation Trigger from auth.users
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (user_id, display_name)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1))
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+```
+
+### 5.2 `posts` Table Migration
+```sql
+create table public.posts (
+  post_id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(user_id) on delete cascade,
+  type text not null check (type in ('lost', 'found')),
+  title text not null,
+  desc_text text not null,
+  images text[] default '{}',
+  category text,
+  colour text,
+  location_text text,
+  appearance jsonb,
+  created_at timestamptz default now()
+);
+
+alter table public.posts enable row level security;
+
+create policy "Posts are readable by authenticated users"
+  on public.posts for select
+  to authenticated
+  using (true);
+
+create policy "Users can insert their own posts"
+  on public.posts for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+create policy "Users can update their own posts"
+  on public.posts for update
+  to authenticated
+  using (auth.uid() = user_id);
+
+create policy "Users can delete their own posts"
+  on public.posts for delete
+  to authenticated
+  using (auth.uid() = user_id);
+```
 
 ---
 
-## 6. Next Backend Integration — Checklist for Codex
+## 6. Next Backend Integration — Step-by-Step Checklist for Codex
 
-Codex should execute the following integration tasks in order:
-
-1. **Supabase Client Setup**: Install `@supabase/supabase-js` and initialize `src/services/supabaseClient.ts` with environment variables (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`).
-2. **Connect Auth Abstraction**: Update `src/services/authService.ts` to call:
-   - `supabase.auth.signInWithPassword({ email, password })`
-   - `supabase.auth.signUp({ email, password, options: { data: { display_name } } })`
-   - `supabase.auth.signOut()`
-   - `supabase.auth.onAuthStateChange(...)`
-3. **Database Migration — `profiles` Table**:
-   - `user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE`
-   - `display_name text NOT NULL CHECK (char_length(display_name) BETWEEN 2 AND 30)`
-   - `trust_score int NOT NULL DEFAULT 0`
-   - `created_at timestamptz DEFAULT now()`
-4. **Database Trigger**:
-   - Create trigger function on `auth.users AFTER INSERT` that inserts into `public.profiles` using `new.raw_user_meta_data->>'display_name'`.
-5. **Database Migration — `posts` Table**:
-   - Create `posts` table referencing `profiles(user_id) ON DELETE CASCADE`.
-6. **Connect Posts Abstraction**: Replace in-memory queries in `src/services/postsService.ts` with Supabase PostgreSQL queries (`supabase.from('posts').select(...)`).
-7. **Supabase Storage**:
-   - Create private bucket for item photos.
-   - Upload file attachments and store bucket file paths in `posts.images`.
-8. **Gemini AI Tag Extraction**:
-   - Server-side proxy or secure edge function receiving `desc_text` and returning suggested `category`, `colour`, `location_text`, and `appearance` before user confirms post creation.
-9. **Conversations & Dashboard**:
-   - Implement `conversations` table and `/dashboard` view (My Posts, My Requests, Incoming Requests).
-10. **Realtime Chat & Resolution**:
-    - Implement `messages` table with Realtime Postgres changes.
-    - Implement `resolve_handover` PostgreSQL `SECURITY DEFINER` transaction that increments finder's `trust_score` and deletes the post with cascading cleanup.
+1. [x] **Supabase Client Setup**: Connected in `src/services/supabaseClient.ts`.
+2. [x] **Supabase Auth Wired**: `authService.ts` calls `supabase.auth.*`.
+3. [ ] **Database Migration — `profiles`**: Run the SQL trigger above so `auth.users` automatically syncs to `public.profiles`.
+4. [ ] **Database Migration — `posts`**: Create the `posts` table in Supabase PostgreSQL.
+5. [ ] **Connect Posts Abstraction**: Replace dummy operations in `src/services/postsService.ts` with `supabase.from('posts').select(...)` and `supabase.from('posts').insert(...)`.
+6. [ ] **Supabase Storage**: Create an `item-photos` bucket for image uploads.
+7. [ ] **Gemini AI Tag Extraction**: Add server-side proxy route `/api/extract-tags` calling Gemini to extract category, colour, location from post description.
+8. [ ] **Conversations & Dashboard**: Implement `conversations` table and connect request/accept flow.
+9. [ ] **Realtime Chat & Resolution**: Enable Realtime on `messages` table and implement the `resolve_handover` PostgreSQL function.

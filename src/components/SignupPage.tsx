@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Lock, Mail, User, AlertCircle, Compass, Shield } from 'lucide-react';
-import { signUp } from '../services/authService';
+import { ArrowLeft, Lock, Mail, User, AlertCircle, Compass, Shield, CheckCircle2, ArrowRight } from 'lucide-react';
+import { signUp, getSession } from '../services/authService';
 
 interface SignupPageProps {
   redirectUrl?: string;
@@ -20,6 +20,7 @@ export const SignupPage: React.FC<SignupPageProps> = ({
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [emailConfirmationPending, setEmailConfirmationPending] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,13 +45,54 @@ export const SignupPage: React.FC<SignupPageProps> = ({
     setLoading(true);
     try {
       await signUp(trimmedName, email, password);
-      onSuccess(redirectUrl || '/');
+      const session = getSession();
+      if (session) {
+        // Logged in immediately (auto-confirm enabled)
+        onSuccess(redirectUrl || '/');
+      } else {
+        // Confirmation email may be required
+        setEmailConfirmationPending(true);
+      }
     } catch (err: any) {
       setError(err?.message || 'Signup failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
+  // Email confirmation pending view
+  if (emailConfirmationPending) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-12 max-w-md mx-auto w-full">
+        <div className="w-full bg-white border border-slate-200 rounded-2xl p-7 sm:p-8 shadow-xs text-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-6 h-6" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900">
+            Account Created!
+          </h1>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Your findIt account has been registered with <strong>{email}</strong>.
+          </p>
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-500 text-left">
+            <p className="font-semibold text-slate-700 mb-0.5">Next step:</p>
+            <p>
+              If your Supabase project requires email confirmation, check your inbox to verify your email, then proceed to sign in.
+            </p>
+          </div>
+          <div className="pt-2">
+            <button
+              onClick={onNavigateToLogin}
+              className="w-full py-2.5 font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-xs transition-colors cursor-pointer text-xs inline-flex items-center justify-center gap-1.5"
+            >
+              <span>Go to Sign In</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-4 py-12 max-w-md mx-auto w-full">

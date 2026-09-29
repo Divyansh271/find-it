@@ -1,90 +1,131 @@
 import { User, Session } from '../types/auth';
-
-const STORAGE_KEY = 'findit_mock_session';
+import { supabase } from './supabaseClient';
+import type { User as SupabaseUser, Session as SupabaseSession } from '@supabase/supabase-js';
 
 type AuthListener = (user: User | null) => void;
 const listeners: Set<AuthListener> = new Set();
+
+let cachedUser: User | null = null;
+let cachedSession: Session | null = null;
+let isInitialized = false;
+
+// Helper to map Supabase User to findIt User model
+export function mapSupabaseUser(sbUser: SupabaseUser | null): User | null {
+  if (!sbUser) return null;
+
+  const metadata = sbUser.user_metadata || {};
+  const email = sbUser.email || '';
+  const emailPrefix = email.split('@')[0] || '';
+  const fallbackName = emailPrefix
+    ? emailPrefix.replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+    : 'Campus Student';
+
+  return {
+    user_id: sbUser.id,
+    email,
+    display_name: metadata.display_name || metadata.full_name || fallbackName,
+    trust_score: 0,
+    created_at: sbUser.created_at || new Date().toISOString(),
+  };
+}
+
+// Helper to map Supabase Session to findIt Session model
+export function mapSupabaseSession(sbSession: SupabaseSession | null): Session | null {
+  if (!sbSession || !sbSession.user) return null;
+
+  const user = mapSupabaseUser(sbSession.user);
+  if (!user) return null;
+
+  return {
+    user,
+    access_token: sbSession.access_token,
+    expires_at: sbSession.expires_at ? sbSession.expires_at * 1000 : Date.now() + 3600 * 1000,
+  };
+}
 
 function notifyListeners(user: User | null) {
   listeners.forEach((listener) => {
     try {
       listener(user);
     } catch (e) {
-      console.error('Error in auth state listener', e);
+      console.error('Error in auth listener:', e);
     }
   });
 }
 
-function loadSessionFromStorage(): Session | null {
+// Initialize session state from Supabase client
+async function initAuth() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function saveSessionToStorage(session: Session | null) {
-  try {
-    if (session) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
+    const { data, error } = await supabase.auth.getSession();
+    if (!error && data.session) {
+      cachedSession = mapSupabaseSession(data.session);
+      cachedUser = cachedSession?.user || null;
     }
-  } catch (e) {
-    console.error('Failed to access localStorage for auth', e);
+  } catch (err) {
+    console.error('Failed to get Supabase session on init:', err);
+  } finally {
+    isInitialized = true;
+    notifyListeners(cachedUser);
   }
 }
 
-let currentSession: Session | null = loadSessionFromStorage();
+// Listen to Supabase Auth state changes
+supabase.auth.onAuthStateChange((_event, sbSession) => {
+  if (sbSession) {
+    cachedSession = mapSupabaseSession(sbSession);
+    cachedUser = cachedSession?.user || null;
+  } else {
+    cachedSession = null;
+    cachedUser = null;
+  }
+  notifyListeners(cachedUser);
+});
+
+// Kick off initialization
+initAuth();
 
 /**
- * Clean Frontend Authentication Abstraction
- * Currently powered by a dummy/mock implementation.
- * Codex will replace these functions with Supabase Auth (supabase.auth.*)
- * without requiring the UI components to change.
+ * Authentication Abstraction Layer
+ * Backed by real Supabase Auth (@supabase/supabase-js)
  */
 
 export function getCurrentUser(): User | null {
-  return currentSession ? currentSession.user : null;
+  return cachedUser;
 }
 
 export function getSession(): Session | null {
-  return currentSession;
+  return cachedSession;
 }
 
 export async function login(email: string, password: string): Promise<User> {
-  // Simulate network latency
-  await new Promise((r) => setTimeout(r, 80));
-
   const trimmedEmail = email.trim().toLowerCase();
   if (!trimmedEmail || !password) {
     throw new Error('Please enter both email and password.');
   }
 
-  // Derive a friendly student display name from email if not already stored
-  const emailPrefix = trimmedEmail.split('@')[0];
-  const derivedName = emailPrefix
-    .replace(/[._-]/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-
-  const user: User = {
-    user_id: `usr-${Date.now().toString().slice(-6)}`,
+  const { data, error } = await supabase.auth.signInWithPassword({
     email: trimmedEmail,
-    display_name: derivedName || 'Campus Student',
-    trust_score: 0,
-    created_at: new Date().toISOString(),
-  };
+    password,
+  });
 
-  currentSession = {
-    user,
-    access_token: `dummy_token_${Date.now()}`,
-    expires_at: Date.now() + 3600 * 1000,
-  };
+  if (error) {
+    throw new Error(error.message);
+  }
 
-  saveSessionToStorage(currentSession);
-  notifyListeners(user);
+  if (!data.user) {
+    throw new Error('No user returned after sign in.');
+  }
+
+  const user = mapSupabaseUser(data.user);
+  if (!user) {
+    throw new Error('Failed to parse user profile.');
+  }
+
+  cachedUser = user;
+  if (data.session) {
+    cachedSession = mapSupabaseSession(data.session);
+  }
+  notifyListeners(cachedUser);
   return user;
 }
 
@@ -93,13 +134,9 @@ export async function signUp(
   email: string,
   password: string
 ): Promise<User> {
-  // Simulate network latency
-  await new Promise((r) => setTimeout(r, 80));
-
   const trimmedName = displayName.trim();
   const trimmedEmail = email.trim().toLowerCase();
 
-  // Validate according to specification
   if (!trimmedName || trimmedName.length < 2 || trimmedName.length > 30) {
     throw new Error('Display name must be between 2 and 30 characters.');
   }
@@ -112,36 +149,53 @@ export async function signUp(
     throw new Error('Password must be at least 6 characters long.');
   }
 
-  const user: User = {
-    user_id: `usr-${Date.now().toString().slice(-6)}`,
+  const { data, error } = await supabase.auth.signUp({
     email: trimmedEmail,
-    display_name: trimmedName,
-    trust_score: 0,
-    created_at: new Date().toISOString(),
-  };
+    password,
+    options: {
+      data: {
+        display_name: trimmedName,
+      },
+    },
+  });
 
-  currentSession = {
-    user,
-    access_token: `dummy_token_${Date.now()}`,
-    expires_at: Date.now() + 3600 * 1000,
-  };
+  if (error) {
+    throw new Error(error.message);
+  }
 
-  saveSessionToStorage(currentSession);
-  notifyListeners(user);
+  if (!data.user) {
+    throw new Error('No user returned after sign up.');
+  }
+
+  const user = mapSupabaseUser(data.user);
+  if (!user) {
+    throw new Error('Failed to parse signed-up user profile.');
+  }
+
+  // If a session is returned immediately (e.g. email confirmation off), update cache
+  if (data.session) {
+    cachedSession = mapSupabaseSession(data.session);
+    cachedUser = user;
+    notifyListeners(cachedUser);
+  }
+
   return user;
 }
 
 export async function logout(): Promise<void> {
-  await new Promise((r) => setTimeout(r, 40));
-  currentSession = null;
-  saveSessionToStorage(null);
+  const { error } = await supabase.auth.signOut();
+  cachedUser = null;
+  cachedSession = null;
   notifyListeners(null);
+  if (error) {
+    console.error('Error signing out:', error.message);
+  }
 }
 
 export function onAuthStateChange(callback: AuthListener): () => void {
   listeners.add(callback);
-  // Immediately call with current user state
-  callback(getCurrentUser());
+  // Call immediately with current state
+  callback(cachedUser);
   return () => {
     listeners.delete(callback);
   };
