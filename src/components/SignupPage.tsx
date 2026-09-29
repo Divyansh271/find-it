@@ -1,6 +1,17 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Lock, Mail, User, AlertCircle, Compass, Shield, CheckCircle2, ArrowRight } from 'lucide-react';
-import { signUp, getSession } from '../services/authService';
+import {
+  ArrowLeft,
+  Lock,
+  Mail,
+  User,
+  AlertCircle,
+  Compass,
+  Shield,
+  CheckCircle2,
+  ArrowRight,
+  Zap
+} from 'lucide-react';
+import { signUp, getSession, signInWithDevBypass } from '../services/authService';
 
 interface SignupPageProps {
   redirectUrl?: string;
@@ -21,6 +32,10 @@ export const SignupPage: React.FC<SignupPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [emailConfirmationPending, setEmailConfirmationPending] = useState(false);
+
+  const isRateLimited =
+    error?.toLowerCase().includes('rate limit') ||
+    error?.toLowerCase().includes('over_email_send_rate_limit');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,6 +75,11 @@ export const SignupPage: React.FC<SignupPageProps> = ({
     }
   };
 
+  const handleBypassSignIn = () => {
+    signInWithDevBypass(email, displayName);
+    onSuccess(redirectUrl || '/');
+  };
+
   // Email confirmation pending view
   if (emailConfirmationPending) {
     return (
@@ -74,19 +94,32 @@ export const SignupPage: React.FC<SignupPageProps> = ({
           <p className="text-xs text-slate-600 leading-relaxed">
             Your findIt account has been registered with <strong>{email}</strong>.
           </p>
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-500 text-left">
-            <p className="font-semibold text-slate-700 mb-0.5">Next step:</p>
-            <p>
-              If your Supabase project requires email confirmation, check your inbox to verify your email, then proceed to sign in.
+
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-900 text-left space-y-1">
+            <p className="font-semibold text-amber-950">Email Confirmation Required:</p>
+            <p className="text-[11px] leading-relaxed">
+              If your Supabase project has email verification enabled, check your email inbox to verify.
+            </p>
+            <p className="text-[11px] text-amber-800 pt-1 border-t border-amber-200">
+              💡 <strong>Supabase Tip:</strong> Turn off "Confirm email" in Supabase Authentication settings to skip this step completely.
             </p>
           </div>
-          <div className="pt-2">
+
+          <div className="pt-2 flex flex-col gap-2">
+            <button
+              onClick={handleBypassSignIn}
+              className="w-full py-2.5 font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-xs transition-colors cursor-pointer text-xs inline-flex items-center justify-center gap-1.5"
+            >
+              <Zap className="w-4 h-4" />
+              <span>Bypass Verification & Enter (Dev Mode)</span>
+            </button>
+
             <button
               onClick={onNavigateToLogin}
-              className="w-full py-2.5 font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-xs transition-colors cursor-pointer text-xs inline-flex items-center justify-center gap-1.5"
+              className="w-full py-2 font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer text-xs inline-flex items-center justify-center gap-1.5"
             >
               <span>Go to Sign In</span>
-              <ArrowRight className="w-4 h-4" />
+              <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -121,7 +154,27 @@ export const SignupPage: React.FC<SignupPageProps> = ({
           </p>
         </div>
 
-        {error && (
+        {isRateLimited && (
+          <div className="mb-4 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-2">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <strong>Supabase Email Rate Limit Reached</strong>
+            </div>
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              Supabase free tier limits confirmation emails to ~3 per hour. Click below to proceed instantly without waiting:
+            </p>
+            <button
+              type="button"
+              onClick={handleBypassSignIn}
+              className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>Instant Dev Sign In</span>
+            </button>
+          </div>
+        )}
+
+        {error && !isRateLimited && (
           <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>

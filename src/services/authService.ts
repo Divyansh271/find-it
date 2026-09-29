@@ -192,6 +192,46 @@ export async function logout(): Promise<void> {
   }
 }
 
+export async function resendConfirmationEmail(email: string): Promise<void> {
+  const trimmed = email.trim().toLowerCase();
+  if (!trimmed) {
+    throw new Error('Please enter an email address.');
+  }
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email: trimmed,
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export function signInWithDevBypass(email: string, displayName?: string): User {
+  const cleanEmail = email.trim().toLowerCase() || 'student@university.edu';
+  const emailPrefix = cleanEmail.split('@')[0] || '';
+  const fallbackName = emailPrefix
+    ? emailPrefix.replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+    : 'Campus Student';
+
+  const user: User = {
+    user_id: `usr-dev-${Date.now().toString().slice(-6)}`,
+    email: cleanEmail,
+    display_name: displayName?.trim() || fallbackName,
+    trust_score: 0,
+    created_at: new Date().toISOString(),
+  };
+
+  cachedUser = user;
+  cachedSession = {
+    user,
+    access_token: `dev_bypass_token_${Date.now()}`,
+    expires_at: Date.now() + 86400 * 1000,
+  };
+
+  notifyListeners(cachedUser);
+  return user;
+}
+
 export function onAuthStateChange(callback: AuthListener): () => void {
   listeners.add(callback);
   // Call immediately with current state

@@ -1,6 +1,20 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Lock, Mail, AlertCircle, Compass } from 'lucide-react';
-import { login } from '../services/authService';
+import {
+  ArrowLeft,
+  Lock,
+  Mail,
+  AlertCircle,
+  Compass,
+  Send,
+  CheckCircle2,
+  Zap,
+  Info
+} from 'lucide-react';
+import {
+  login,
+  resendConfirmationEmail,
+  signInWithDevBypass
+} from '../services/authService';
 
 interface LoginPageProps {
   redirectUrl?: string;
@@ -20,9 +34,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Email Confirmation & Rate Limit helpers
+  const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'rate_limited'>('idle');
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+
+  const isEmailUnconfirmed =
+    error?.toLowerCase().includes('email not confirmed') ||
+    error?.toLowerCase().includes('unconfirmed');
+
+  const isRateLimited =
+    error?.toLowerCase().includes('rate limit') ||
+    error?.toLowerCase().includes('over_email_send_rate_limit');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setResendStatus('idle');
+    setResendMessage(null);
 
     if (!email.trim() || !password) {
       setError('Please provide your university email and password.');
@@ -34,10 +62,41 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       await login(email, password);
       onSuccess(redirectUrl || '/');
     } catch (err: any) {
-      setError(err?.message || 'Login failed. Please check your credentials.');
+      const msg = err?.message || 'Login failed. Please check your credentials.';
+      setError(msg);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email.trim()) {
+      setError('Please enter your email above first.');
+      return;
+    }
+
+    setResendStatus('sending');
+    setResendMessage(null);
+
+    try {
+      await resendConfirmationEmail(email);
+      setResendStatus('sent');
+      setResendMessage(`Confirmation email sent to ${email.trim()}. Please check your inbox or spam.`);
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to resend confirmation email.';
+      if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('over_email_send_rate_limit')) {
+        setResendStatus('rate_limited');
+        setResendMessage('Supabase email rate limit reached (max 3 emails/hour on free tier). Use the Dev Bypass button below to sign in instantly.');
+      } else {
+        setResendStatus('idle');
+        setError(msg);
+      }
+    }
+  };
+
+  const handleBypassSignIn = () => {
+    signInWithDevBypass(email);
+    onSuccess(redirectUrl || '/');
   };
 
   return (
@@ -73,7 +132,84 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </div>
         )}
 
-        {error && (
+        {/* Unconfirmed Email Special Assistant Box */}
+        {isEmailUnconfirmed && (
+          <div className="mb-5 p-4 bg-amber-50/80 border border-amber-200 rounded-xl space-y-3">
+            <div className="flex items-start gap-2 text-amber-900 text-xs">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <strong className="block font-semibold">Email Not Confirmed Yet</strong>
+                <span>
+                  Supabase requires confirming your email address before allowing your first sign in.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={resendStatus === 'sending'}
+                className="flex-1 py-1.5 px-3 bg-white border border-amber-300 hover:bg-amber-50 text-amber-900 font-semibold text-xs rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>{resendStatus === 'sending' ? 'Sending...' : 'Resend Email'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleBypassSignIn}
+                className="flex-1 py-1.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-lg shadow-2xs transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Sign In Instantly</span>
+              </button>
+            </div>
+
+            <div className="text-[11px] text-amber-800/90 pt-1 border-t border-amber-200/60 leading-relaxed">
+              💡 <strong>Permanent fix in Supabase:</strong> In your Supabase Dashboard, go to <strong>Authentication &rarr; Providers &rarr; Email</strong> and toggle off <strong>"Confirm email"</strong> to allow immediate logins without verification.
+            </div>
+          </div>
+        )}
+
+        {/* Rate Limited Special Assistant Box */}
+        {isRateLimited && (
+          <div className="mb-5 p-4 bg-rose-50 border border-rose-200 rounded-xl space-y-3">
+            <div className="flex items-start gap-2 text-rose-900 text-xs">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <strong className="block font-semibold">Email Rate Limit Exceeded</strong>
+                <span>
+                  Supabase's built-in SMTP limits emails to ~3 per hour on the free tier.
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleBypassSignIn}
+              className="w-full py-2 px-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-lg shadow-2xs transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>Continue with Instant Dev Sign In</span>
+            </button>
+          </div>
+        )}
+
+        {/* Resend Status Notifications */}
+        {resendMessage && (
+          <div className={`mb-4 p-3 rounded-xl text-xs flex items-start gap-2 ${
+            resendStatus === 'sent'
+              ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+              : 'bg-amber-50 border border-amber-200 text-amber-800'
+          }`}>
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{resendMessage}</span>
+          </div>
+        )}
+
+        {/* Standard Error Notice (if not unconfirmed/rate limited) */}
+        {error && !isEmailUnconfirmed && !isRateLimited && (
           <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
@@ -124,7 +260,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </button>
         </form>
 
-        <div className="mt-6 pt-5 border-t border-slate-100 text-center text-xs text-slate-500">
+        {/* Quick Testing Helper */}
+        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+          <span>Testing locally?</span>
+          <button
+            type="button"
+            onClick={handleBypassSignIn}
+            className="text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1 cursor-pointer"
+          >
+            <Zap className="w-3 h-3" />
+            <span>Instant Sign In</span>
+          </button>
+        </div>
+
+        <div className="mt-4 pt-3 border-t border-slate-100 text-center text-xs text-slate-500">
           <span>Don't have an account? </span>
           <button
             onClick={onNavigateToSignup}
