@@ -1,6 +1,8 @@
 import { User, Session } from '../types/auth';
-import { supabase } from './supabaseClient';
+import { supabase, isSupabaseConfigured, SUPABASE_URL } from './supabaseClient';
 import type { User as SupabaseUser, Session as SupabaseSession } from '@supabase/supabase-js';
+
+export { isSupabaseConfigured, SUPABASE_URL };
 
 type AuthListener = (user: User | null) => void;
 const listeners: Set<AuthListener> = new Set();
@@ -109,6 +111,11 @@ export async function login(email: string, password: string): Promise<User> {
   });
 
   if (error) {
+    if (error.message.toLowerCase().includes('invalid login credentials')) {
+      throw new Error(
+        'Invalid login credentials. Please ensure you have created an account first, or verify your email and password.'
+      );
+    }
     throw new Error(error.message);
   }
 
