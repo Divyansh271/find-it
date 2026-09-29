@@ -14,7 +14,9 @@ import {
   Calendar,
   Layers,
   Trash2,
-  ExternalLink
+  ExternalLink,
+  ShieldCheck,
+  FolderKanban
 } from 'lucide-react';
 import { User } from '../types/auth';
 import { Conversation } from '../types/conversation';
@@ -24,13 +26,16 @@ import {
   getOutgoingRequests,
   getActiveConversations,
   acceptConversationRequest,
-  declineConversationRequest
+  declineConversationRequest,
+  getPostsActivitiesBatch,
+  PostActivity
 } from '../services/conversationsService';
 import { getUserPosts, deletePost } from '../services/postsService';
 import { getPostImageUrl } from '../services/storageService';
 
 interface DashboardProps {
   currentUser: User;
+  initialTab?: 'incoming' | 'active' | 'outgoing' | 'my-posts';
   onNavigateToChat: (convoId: string) => void;
   onNavigateToPost: (postId: string) => void;
   onCreatePost: (type: 'lost' | 'found') => void;
@@ -38,20 +43,29 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({
   currentUser,
+  initialTab = 'incoming',
   onNavigateToChat,
   onNavigateToPost,
   onCreatePost,
 }) => {
-  const [activeTab, setActiveTab] = useState<'incoming' | 'active' | 'outgoing' | 'my-posts'>('incoming');
+  const [activeTab, setActiveTab] = useState<'incoming' | 'active' | 'outgoing' | 'my-posts'>(initialTab);
 
   const [incomingRequests, setIncomingRequests] = useState<Conversation[]>([]);
   const [outgoingRequests, setOutgoingRequests] = useState<Conversation[]>([]);
   const [activeConversations, setActiveConversations] = useState<Conversation[]>([]);
   const [myPosts, setMyPosts] = useState<Post[]>([]);
+  const [postActivities, setPostActivities] = useState<Record<string, PostActivity>>({});
 
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Sync tab if initialTab changes
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   const loadAll = async () => {
     setLoading(true);
@@ -66,6 +80,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setOutgoingRequests(out);
       setActiveConversations(active);
       setMyPosts(posts);
+
+      // Batch load real conversation activity counts for each post
+      const postIds = posts.map((p) => p.post_id);
+      if (postIds.length > 0) {
+        const activities = await getPostsActivitiesBatch(postIds);
+        setPostActivities(activities);
+      }
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
@@ -82,7 +103,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setNotice(null);
     try {
       await acceptConversationRequest(convoId);
-      setNotice('Request accepted! The chat room is now active.');
+      setNotice('Request accepted! The live chat room is now active.');
       await loadAll();
     } catch (err: any) {
       console.error('Failed to accept request:', err);
@@ -130,6 +151,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       );
     }
 
+    /* ------------------------------------------------------------- */
+    /* TAB 1: INCOMING REQUESTS (Requests I Received)                */
+    /* ------------------------------------------------------------- */
     if (activeTab === 'incoming') {
       if (incomingRequests.length === 0) {
         return (
@@ -137,7 +161,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <MessageSquare className="w-8 h-8 text-slate-300 mx-auto" />
             <h3 className="text-sm font-bold text-slate-800">No Pending Incoming Requests</h3>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              When another student requests to coordinate with you on your lost or found posts, their requests will appear here for you to accept.
+              When another student reaches out regarding an item you posted, their request with identifying message and photo will appear here.
             </p>
           </div>
         );
@@ -230,6 +254,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       );
     }
 
+    /* ------------------------------------------------------------- */
+    /* TAB 2: ACTIVE CHATS (Accepted Conversations)                  */
+    /* ------------------------------------------------------------- */
     if (activeTab === 'active') {
       if (activeConversations.length === 0) {
         return (
@@ -292,6 +319,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       );
     }
 
+    /* ------------------------------------------------------------- */
+    /* TAB 3: OUTGOING REQUESTS (Requests I Sent)                    */
+    /* ------------------------------------------------------------- */
     if (activeTab === 'outgoing') {
       if (outgoingRequests.length === 0) {
         return (
@@ -299,7 +329,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <Clock className="w-8 h-8 text-slate-300 mx-auto" />
             <h3 className="text-sm font-bold text-slate-800">No Outgoing Requests</h3>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              When you submit a conversation request on another student's post, you can track its status here.
+              When you submit a conversation request on another student's post, you can track its acceptance status here.
             </p>
           </div>
         );
@@ -338,7 +368,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 font-medium">
                     <Clock className="w-3 h-3 text-amber-600" />
-                    <span>Pending Acceptance</span>
+                    <span>Waiting for response</span>
                   </span>
                 )}
               </div>
@@ -348,7 +378,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       );
     }
 
-    // MY POSTS
+    /* ------------------------------------------------------------- */
+    /* TAB 4: MY POSTS (Posts Created By Me + Real Activity Summary) */
+    /* ------------------------------------------------------------- */
     if (myPosts.length === 0) {
       return (
         <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center space-y-2">
@@ -357,59 +389,120 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
             Create a Lost report or Found post to help recover items across campus.
           </p>
+          <div className="pt-2 flex items-center justify-center gap-2">
+            <button
+              onClick={() => onCreatePost('lost')}
+              className="px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg cursor-pointer"
+            >
+              + Lost Report
+            </button>
+            <button
+              onClick={() => onCreatePost('found')}
+              className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg cursor-pointer"
+            >
+              + Found Item
+            </button>
+          </div>
         </div>
       );
     }
 
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {myPosts.map((post) => (
-          <div
-            key={post.post_id}
-            className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3 flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                    post.type === 'found'
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : 'bg-rose-50 text-rose-700'
-                  }`}
-                >
-                  {post.type === 'found' ? 'Found Post' : 'Lost Report'}
-                </span>
-                <span className="text-[10px] font-mono text-slate-400">
-                  {new Date(post.created_at).toLocaleDateString()}
-                </span>
+        {myPosts.map((post) => {
+          const act = postActivities[post.post_id] || {
+            totalRequests: 0,
+            pendingCount: 0,
+            acceptedCount: 0,
+            conversations: [],
+          };
+
+          return (
+            <div
+              key={post.post_id}
+              className="bg-white border border-slate-200 hover:border-slate-300 rounded-2xl p-4 sm:p-5 shadow-2xs hover:shadow-xs space-y-3 flex flex-col justify-between transition-all"
+            >
+              <div>
+                {/* Header type badge & date */}
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                      post.type === 'found'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-rose-50 text-rose-700'
+                    }`}
+                  >
+                    {post.type === 'found' ? 'Found Post' : 'Lost Report'}
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    {new Date(post.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+
+                {/* Optional Image Thumbnail */}
+                {post.images && post.images.length > 0 && post.images[0] && (
+                  <div className="mb-2 rounded-lg overflow-hidden bg-slate-100 max-h-32">
+                    <img
+                      src={getPostImageUrl(post.images[0])}
+                      alt={post.title}
+                      className="w-full h-28 object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+
+                <h3 className="text-sm font-bold text-slate-900 line-clamp-1">
+                  {post.title}
+                </h3>
+                <p className="text-xs text-slate-500 line-clamp-2 mt-1">
+                  {post.desc_text}
+                </p>
+
+                {/* REAL POST ACTIVITY SUMMARY (No hardcoded counts, derived from conversations) */}
+                <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-1.5 text-[11px]">
+                  {act.totalRequests === 0 ? (
+                    <span className="text-slate-400 font-medium">
+                      0 conversation requests
+                    </span>
+                  ) : (
+                    <>
+                      {act.pendingCount > 0 && (
+                        <span className="bg-amber-50 text-amber-800 font-bold px-2 py-0.5 rounded-md border border-amber-200">
+                          {act.pendingCount} pending {act.pendingCount === 1 ? 'request' : 'requests'}
+                        </span>
+                      )}
+                      {act.acceptedCount > 0 && (
+                        <span className="bg-emerald-50 text-emerald-800 font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                          {act.acceptedCount} active {act.acceptedCount === 1 ? 'chat' : 'chats'}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
 
-              <h3 className="text-sm font-bold text-slate-900 line-clamp-1">
-                {post.title}
-              </h3>
-              <p className="text-xs text-slate-500 line-clamp-2 mt-1">
-                {post.desc_text}
-              </p>
+              {/* Actions */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                <button
+                  onClick={() => onNavigateToPost(post.post_id)}
+                  className="text-indigo-600 hover:text-indigo-700 font-bold inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <span>View Post & Requests</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => handleDeletePost(post.post_id)}
+                  className="text-rose-600 hover:text-rose-700 font-semibold inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete</span>
+                </button>
+              </div>
             </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-              <button
-                onClick={() => onNavigateToPost(post.post_id)}
-                className="text-slate-600 hover:text-slate-900 font-semibold inline-flex items-center gap-1 cursor-pointer"
-              >
-                <span>View</span>
-                <ExternalLink className="w-3 h-3" />
-              </button>
-              <button
-                onClick={() => handleDeletePost(post.post_id)}
-                className="text-rose-600 hover:text-rose-700 font-semibold inline-flex items-center gap-1 cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete</span>
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   };
@@ -423,7 +516,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             Dashboard
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Manage your item requests, active chat rooms, and posted reports.
+            Manage your posts, incoming interaction requests, and live chat rooms.
           </p>
         </div>
 
@@ -457,6 +550,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Tabs */}
       <div className="flex items-center gap-1.5 border-b border-slate-200 overflow-x-auto pb-1 text-xs">
+        {/* Tab 1: Incoming Requests */}
         <button
           onClick={() => setActiveTab('incoming')}
           className={`px-4 py-2 font-semibold rounded-t-xl transition-colors cursor-pointer flex items-center gap-2 shrink-0 ${
@@ -473,6 +567,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
           )}
         </button>
 
+        {/* Tab 2: My Posts */}
+        <button
+          onClick={() => setActiveTab('my-posts')}
+          className={`px-4 py-2 font-semibold rounded-t-xl transition-colors cursor-pointer flex items-center gap-2 shrink-0 ${
+            activeTab === 'my-posts'
+              ? 'bg-white border-t border-x border-slate-200 text-slate-900 -mb-[1px]'
+              : 'text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          <span>My Posts</span>
+          <span className="text-[10px] text-slate-400 font-mono">({myPosts.length})</span>
+        </button>
+
+        {/* Tab 3: Active Chats */}
         <button
           onClick={() => setActiveTab('active')}
           className={`px-4 py-2 font-semibold rounded-t-xl transition-colors cursor-pointer flex items-center gap-2 shrink-0 ${
@@ -489,6 +597,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           )}
         </button>
 
+        {/* Tab 4: Outgoing Requests */}
         <button
           onClick={() => setActiveTab('outgoing')}
           className={`px-4 py-2 font-semibold rounded-t-xl transition-colors cursor-pointer flex items-center gap-2 shrink-0 ${
@@ -497,24 +606,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
               : 'text-slate-500 hover:text-slate-900'
           }`}
         >
-          <span>Outgoing Requests</span>
+          <span>My Requests Sent</span>
           {outgoingRequests.length > 0 && (
             <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
               {outgoingRequests.length}
             </span>
           )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('my-posts')}
-          className={`px-4 py-2 font-semibold rounded-t-xl transition-colors cursor-pointer flex items-center gap-2 shrink-0 ${
-            activeTab === 'my-posts'
-              ? 'bg-white border-t border-x border-slate-200 text-slate-900 -mb-[1px]'
-              : 'text-slate-500 hover:text-slate-900'
-          }`}
-        >
-          <span>My Posts</span>
-          <span className="text-[10px] text-slate-400 font-mono">({myPosts.length})</span>
         </button>
       </div>
 

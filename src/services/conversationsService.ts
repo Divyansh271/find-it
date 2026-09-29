@@ -530,3 +530,155 @@ export async function resolveConversation(convoId: string): Promise<{ success: b
     throw err;
   }
 }
+
+// ---------------------------------------------------------------------------
+// POST ACTIVITY & POST-SPECIFIC CONVERSATIONS (For "My Posts" & Post Detail)
+// ---------------------------------------------------------------------------
+
+export interface PostActivity {
+  totalRequests: number;
+  pendingCount: number;
+  acceptedCount: number;
+  conversations: Conversation[];
+}
+
+/**
+ * Retrieves all conversations and incoming requests on a specific post.
+ * Strictly used by post owners to monitor activity on their post.
+ */
+export async function getConversationsForPost(postId: string): Promise<Conversation[]> {
+  const currentUser = getCurrentUser();
+  if (!currentUser || !postId) return [];
+
+  // Match local conversations
+  const localMatches = localConversations.filter((c) => c.post_id === postId);
+
+  try {
+    const { data, error } = await supabase
+      .from('conversations')
+      .select(`
+        *,
+        post:posts(post_id, title, type, images, location_text),
+        requester_profile:profiles!conversations_requested_by_fkey(display_name, trust_score),
+        owner_profile:profiles!conversations_owner_id_fkey(display_name, trust_score),
+        finder_profile:profiles!conversations_finder_id_fkey(display_name, trust_score)
+      `)
+      .eq('post_id', postId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('Error fetching conversations for post with join, attempting simple query:', error.message);
+      const simple = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: false });
+
+      if (simple.data) {
+        const userIds = Array.from(new Set(simple.data.map((c: any) => c.requested_by)));
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('user_id, display_name, trust_score')
+          .in('user_id', userIds);
+        const profMap = new Map((profs || []).map((p: any) => [p.user_id, p]));
+
+        const hydrated = simple.data.map((c: any) => ({
+          ...c,
+          requester_profile: profMap.get(c.requested_by),
+        }));
+
+        const dbIds = new Set(hydrated.map((c: any) => c.convo_id));
+        return [...hydrated, ...localMatches.filter((l) => !dbIds.has(l.convo_id))];
+      }
+      return localMatches;
+    }
+
+    const dbConvos = (data as Conversation[]) || [];
+    const dbIds = new Set(dbConvos.map((c) => c.convo_id));
+    return [...dbConvos, ...localMatches.filter((l) => !dbIds.has(l.convo_id))];
+  } catch (err) {
+    console.warn('Network error loading conversations for post:', err);
+    return localMatches;
+  }
+}
+
+/**
+ * Returns structured activity summary for a post (total requests, pending, accepted).
+ */
+export async function getPostActivity(postId: string): Promise<PostActivity> {
+  const convos = await getConversationsForPost(postId);
+  const pendingCount = convos.filter((c) => !c.accepted).length;
+  const acceptedCount = convos.filter((c) => c.accepted).length;
+
+  return {
+    totalRequests: convos.length,
+    pendingCount,
+    acceptedCount,
+    conversations: convos,
+  };
+}
+
+/**
+ * Batch-fetches activity summaries for a list of posts efficiently without N+1 queries.
+ */
+export async function getPostsActivitiesBatch(postIds: string[]): Promise<Record<string, PostActivity>> {
+  const result: Record<string, PostActivity> = {};
+  if (!postIds || postIds.length === 0) return result;
+
+  for (const id of postIds) {
+    result[id] = {
+      totalRequests: 0,
+      pendingCount: 0,
+      acceptedCount: 0,
+      conversations: [],
+    };
+  }
+
+  // 1. Add local conversations
+  for (const c of localConversations) {
+    if (result[c.post_id]) {
+      result[c.post_id].conversations.push(c);
+      result[c.post_id].totalRequests++;
+      if (c.accepted) result[c.post_id].acceptedCount++;
+      else result[c.post_id].pendingCount++;
+    }
+  }
+
+  // 2. Query Supabase in a single batch query
+  try {
+    const { data, error } = await supabase
+      .from('conversations')
+      .select(`
+        *,
+        post:posts(post_id, title, type, images, location_text),
+        requester_profile:profiles!conversations_requested_by_fkey(display_name, trust_score)
+      `)
+      .in('post_id', postIds)
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      const convos = data as Conversation[];
+      for (const id of postIds) {
+        const postConvos = convos.filter((c) => c.post_id === id);
+        const existingLocal = result[id]?.conversations || [];
+        const dbIds = new Set(postConvos.map((c) => c.convo_id));
+        const merged = [...postConvos, ...existingLocal.filter((l) => !dbIds.has(l.convo_id))];
+
+        result[id] = {
+          totalRequests: merged.length,
+          pendingCount: merged.filter((c) => !c.accepted).length,
+          acceptedCount: merged.filter((c) => c.accepted).length,
+          conversations: merged,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Batch activity fetch notice:', err);
+  }
+
+  return result;
+}
+
+// Aliases matching specific task requirements
+export const getIncomingConversationRequests = getIncomingRequests;
+export const getOutgoingConversationRequests = getOutgoingRequests;

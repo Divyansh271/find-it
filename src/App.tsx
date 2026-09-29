@@ -70,6 +70,7 @@ export default function App() {
   const isLogin = pathname === '/auth/login';
   const isSignup = pathname === '/auth/signup';
   const isDashboard = pathname === '/dashboard';
+  const isMyPosts = pathname === '/my-posts';
   const isProfile = pathname === '/profile';
   const isChat = pathname.startsWith('/chat/');
   const convoId = isChat ? pathname.replace('/chat/', '') : null;
@@ -83,6 +84,7 @@ export default function App() {
         onNavigateLogin={() => navigate('/auth/login')}
         onNavigateSignup={() => navigate('/auth/signup')}
         onNavigateDashboard={() => navigate('/dashboard')}
+        onNavigateMyPosts={() => navigate('/my-posts')}
         onNavigateProfile={() => navigate('/profile')}
         onLogout={handleLogout}
       />
@@ -168,18 +170,19 @@ export default function App() {
           )
         )}
 
-        {/* PROTECTED: Dashboard (/dashboard) */}
-        {isDashboard && (
+        {/* PROTECTED: Dashboard (/dashboard) & My Posts (/my-posts) */}
+        {(isDashboard || isMyPosts) && (
           !currentUser ? (
             <LoginPage
-              redirectUrl="/dashboard"
+              redirectUrl={isMyPosts ? '/my-posts' : '/dashboard'}
               onSuccess={(target) => navigate(target)}
-              onNavigateToSignup={() => navigate('/auth/signup?redirect=%2Fdashboard')}
+              onNavigateToSignup={() => navigate(`/auth/signup?redirect=${encodeURIComponent(isMyPosts ? '/my-posts' : '/dashboard')}`)}
               onBackToHome={() => navigate('/')}
             />
           ) : (
             <Dashboard
               currentUser={currentUser}
+              initialTab={isMyPosts ? 'my-posts' : 'incoming'}
               onNavigateToChat={(id) => navigate(`/chat/${id}`)}
               onNavigateToPost={(id) => navigate(`/post/${id}`)}
               onCreatePost={(type) => navigate(`/post/new?type=${type}`)}

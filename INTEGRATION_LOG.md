@@ -351,3 +351,38 @@ create policy "Authenticated users can upload item photos"
    - User A's `trust_score` increments by 1.
    - The AirPods post is deleted from the feed.
    - The conversation and chat history are cleanly deleted.
+
+---
+
+## Integration: "My Posts" & Post-Specific Conversation Activity Hub
+
+**Date:** 2026-09-29  
+**Status:** Integrated and connected across all authenticated surfaces
+
+### 1. User Questions Answered
+1. **What posts have I created?**
+   - Click **"My Posts"** in the top navigation bar or navigate to `/my-posts` to see all reports created by the current user with images, dates, and live conversation counts.
+2. **Who is requesting to interact with my posts?**
+   - Open **"Incoming Requests"** in `/dashboard` to review all incoming requests across all posts, OR open any personal post (`/post/[id]`) to see post-specific incoming requests with requester display names, trust scores, messages, and photos.
+3. **What happened to the requests I sent?**
+   - Open **"My Requests Sent"** in `/dashboard` to check whether requests sent to other students are `Waiting for response` or `Accepted (Open Chat)`.
+4. **Where is my active conversation?**
+   - Open **"Active Chats"** in `/dashboard` or click **"Open Live Chat"** directly from any accepted request card.
+
+### 2. Data Access Additions
+- `getMyPosts()` in `src/services/postsService.ts`: Queries `posts WHERE user_id = auth.uid()` securely derived from the authenticated session.
+- `getConversationsForPost(postId)` in `src/services/conversationsService.ts`: Retrieves all incoming requests and active chats on a specific post.
+- `getPostActivity(postId)` in `src/services/conversationsService.ts`: Calculates `totalRequests`, `pendingCount`, and `acceptedCount` dynamically without fake post status columns.
+- `getPostsActivitiesBatch(postIds)` in `src/services/conversationsService.ts`: Batch-queries conversations across multiple posts in a single query to eliminate N+1 overhead.
+- Aliases `getIncomingConversationRequests` and `getOutgoingConversationRequests`.
+
+### 3. UI Changes
+- **Persistent Navigation:** Added `My Posts` button to `Navbar.tsx` for all authenticated users.
+- **Post Detail (`PostDetail.tsx`):**
+  - When the owner views their own post, the action panel renders **"Conversation Requests on this Post"** with full details (requester display name, trust badge, request text, photo proof).
+  - Includes direct **"Accept & Start Chat"** and **"Decline"** controls, plus **"Open Live Chat"** if already accepted.
+  - When other students view the post, they only see the request form; private activity is never exposed.
+- **Dashboard (`Dashboard.tsx`):**
+  - Reorganized into 4 explicit concepts: `Incoming Requests`, `My Posts`, `Active Chats`, and `My Requests Sent`.
+  - Added real-time activity indicators on each post card in `My Posts` (e.g. `1 pending request`, `2 active chats`).
+- **Routing (`App.tsx`):** Added `/my-posts` route linking directly into the `my-posts` tab.

@@ -8,6 +8,7 @@ interface NavbarProps {
   onNavigateLogin: () => void;
   onNavigateSignup: () => void;
   onNavigateDashboard?: () => void;
+  onNavigateMyPosts?: () => void;
   onNavigateProfile?: () => void;
   onLogout: () => void;
 }
@@ -18,6 +19,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigateLogin,
   onNavigateSignup,
   onNavigateDashboard,
+  onNavigateMyPosts,
   onNavigateProfile,
   onLogout,
 }) => {
@@ -42,6 +44,17 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="flex items-center gap-2 sm:gap-3">
         {currentUser ? (
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* My Posts Link */}
+            {onNavigateMyPosts && (
+              <button
+                type="button"
+                onClick={onNavigateMyPosts}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                <span>My Posts</span>
+              </button>
+            )}
+
             {/* Dashboard Link */}
             {onNavigateDashboard && (
               <button

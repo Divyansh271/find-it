@@ -670,6 +670,27 @@ export async function getUserPosts(userId?: string): Promise<Post[]> {
 }
 
 /**
+ * Retrieves posts created by the currently authenticated user.
+ * Derived securely from active auth identity.
+ */
+export async function getMyPosts(): Promise<Post[]> {
+  const currentUser = getCurrentUser();
+  if (!currentUser) return [];
+
+  let effectiveUserId = currentUser.user_id;
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData?.session?.user?.id) {
+      effectiveUserId = sessionData.session.user.id;
+    }
+  } catch {
+    // Keep
+  }
+
+  return getUserPosts(effectiveUserId);
+}
+
+/**
  * Updates a user's own post. RLS enforces user_id = auth.uid().
  */
 export async function updatePost(
