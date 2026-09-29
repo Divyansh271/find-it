@@ -237,8 +237,19 @@ create policy "Participants can insert messages in accepted conversations"
     )
   );
 
--- 4. Enable Supabase Realtime for Messages
-alter publication supabase_realtime add table public.messages;
+-- 4. Enable Supabase Realtime for Messages (idempotent check)
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'messages'
+  ) then
+    alter publication supabase_realtime add table public.messages;
+  end if;
+end $$;
 
 -- 5. Secure Transactional Resolution RPC
 create or replace function public.resolve_conversation(p_convo_id uuid)
