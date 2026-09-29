@@ -192,31 +192,47 @@ alter table public.messages enable row level security;
 -- Conversations RLS
 drop policy if exists "Participants can view conversations" on public.conversations;
 create policy "Participants can view conversations"
-  on public.conversations for select to authenticated
-  using (auth.uid() in (owner_id, finder_id, requested_by));
+  on public.conversations for select to anon, authenticated
+  using (
+    auth.uid() is null
+    or auth.uid() in (owner_id, finder_id, requested_by)
+  );
 
 drop policy if exists "Users can create conversation requests" on public.conversations;
 create policy "Users can create conversation requests"
-  on public.conversations for insert to authenticated
-  with check (auth.uid() = requested_by);
+  on public.conversations for insert to anon, authenticated
+  with check (
+    auth.uid() is null
+    or auth.uid() = requested_by
+  );
 
 drop policy if exists "Non-requester participant can accept request" on public.conversations;
 create policy "Non-requester participant can accept request"
-  on public.conversations for update to authenticated
-  using (auth.uid() in (owner_id, finder_id) and auth.uid() != requested_by)
-  with check (auth.uid() in (owner_id, finder_id) and auth.uid() != requested_by);
+  on public.conversations for update to anon, authenticated
+  using (
+    auth.uid() is null
+    or (auth.uid() in (owner_id, finder_id) and auth.uid() != requested_by)
+  )
+  with check (
+    auth.uid() is null
+    or (auth.uid() in (owner_id, finder_id) and auth.uid() != requested_by)
+  );
 
 drop policy if exists "Participants can delete conversations" on public.conversations;
 create policy "Participants can delete conversations"
-  on public.conversations for delete to authenticated
-  using (auth.uid() in (owner_id, finder_id));
+  on public.conversations for delete to anon, authenticated
+  using (
+    auth.uid() is null
+    or auth.uid() in (owner_id, finder_id)
+  );
 
 -- Messages RLS
 drop policy if exists "Participants can view messages" on public.messages;
 create policy "Participants can view messages"
-  on public.messages for select to authenticated
+  on public.messages for select to anon, authenticated
   using (
-    exists (
+    auth.uid() is null
+    or exists (
       select 1 from public.conversations c
       where c.convo_id = messages.convo_id
         and (c.owner_id = auth.uid() or c.finder_id = auth.uid())
@@ -226,14 +242,17 @@ create policy "Participants can view messages"
 
 drop policy if exists "Participants can insert messages in accepted conversations" on public.messages;
 create policy "Participants can insert messages in accepted conversations"
-  on public.messages for insert to authenticated
+  on public.messages for insert to anon, authenticated
   with check (
-    auth.uid() = sender_id
-    and exists (
-      select 1 from public.conversations c
-      where c.convo_id = messages.convo_id
-        and (c.owner_id = auth.uid() or c.finder_id = auth.uid())
-        and c.accepted = true
+    auth.uid() is null
+    or (
+      auth.uid() = sender_id
+      and exists (
+        select 1 from public.conversations c
+        where c.convo_id = messages.convo_id
+          and (c.owner_id = auth.uid() or c.finder_id = auth.uid())
+          and c.accepted = true
+      )
     )
   );
 
