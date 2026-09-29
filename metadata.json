@@ -1,0 +1,6 @@
+{
+  "name": "FindIt - University Lost & Found",
+  "description": "A modern campus platform for university students to report, search, and recover lost and found belongings.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
