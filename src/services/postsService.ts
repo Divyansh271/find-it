@@ -1,6 +1,12 @@
 import { Post, PostFilterOptions, CreatePostInput, PostType } from '../types/post';
 import { getCurrentUser } from './authService';
 import { supabase } from './supabaseClient';
+import { getPostImageUrl, getPostImageUrls } from './storageService';
+
+export { getPostImageUrl, getPostImageUrls };
+
+// Select fields including creator's profile display_name and trust_score
+const POST_SELECT_FIELDS = '*, creator:profiles!posts_user_id_fkey(display_name, trust_score)';
 
 export const CATEGORIES = [
   'Electronics',
@@ -237,12 +243,17 @@ export async function getFoundPosts(): Promise<Post[]> {
   try {
     const { data, error } = await supabase
       .from('posts')
-      .select('*')
+      .select(POST_SELECT_FIELDS)
       .eq('type', 'found')
       .order('created_at', { ascending: false });
 
     if (error) {
       console.warn(`Supabase getFoundPosts notice (${error.code}): ${error.message}`);
+      // Fallback query with plain select if relationship fails
+      const fallbackReq = await supabase.from('posts').select('*').eq('type', 'found').order('created_at', { ascending: false });
+      if (!fallbackReq.error && fallbackReq.data) {
+        return fallbackReq.data as Post[];
+      }
       return getAllFallbackPosts('found');
     }
 
@@ -263,7 +274,7 @@ export async function searchFoundPosts(
   try {
     let req = supabase
       .from('posts')
-      .select('*')
+      .select(POST_SELECT_FIELDS)
       .eq('type', 'found');
 
     if (filters.category && filters.category !== 'All') {
@@ -317,12 +328,16 @@ export async function getLostPosts(): Promise<Post[]> {
   try {
     const { data, error } = await supabase
       .from('posts')
-      .select('*')
+      .select(POST_SELECT_FIELDS)
       .eq('type', 'lost')
       .order('created_at', { ascending: false });
 
     if (error) {
       console.warn(`Supabase getLostPosts notice (${error.code}): ${error.message}`);
+      const fallbackReq = await supabase.from('posts').select('*').eq('type', 'lost').order('created_at', { ascending: false });
+      if (!fallbackReq.error && fallbackReq.data) {
+        return fallbackReq.data as Post[];
+      }
       return getAllFallbackPosts('lost');
     }
 
@@ -343,7 +358,7 @@ export async function searchLostPosts(
   try {
     let req = supabase
       .from('posts')
-      .select('*')
+      .select(POST_SELECT_FIELDS)
       .eq('type', 'lost');
 
     if (filters.category && filters.category !== 'All') {
@@ -398,12 +413,16 @@ export async function getPostById(postId: string): Promise<Post | null> {
   try {
     const { data, error } = await supabase
       .from('posts')
-      .select('*')
+      .select(POST_SELECT_FIELDS)
       .eq('post_id', postId)
       .maybeSingle();
 
     if (error) {
       console.warn(`Supabase getPostById notice (${error.code}): ${error.message}`);
+      const fallbackReq = await supabase.from('posts').select('*').eq('post_id', postId).maybeSingle();
+      if (!fallbackReq.error && fallbackReq.data) {
+        return fallbackReq.data as Post;
+      }
       const fallback = [...localCreatedPosts, ...SEED_POSTS].find((p) => p.post_id === postId);
       return fallback ? { ...fallback } : null;
     }
@@ -630,12 +649,16 @@ export async function getUserPosts(userId?: string): Promise<Post[]> {
   try {
     const { data, error } = await supabase
       .from('posts')
-      .select('*')
+      .select(POST_SELECT_FIELDS)
       .eq('user_id', targetUserId)
       .order('created_at', { ascending: false });
 
     if (error) {
       console.warn(`Supabase getUserPosts notice: ${error.message}`);
+      const fallbackReq = await supabase.from('posts').select('*').eq('user_id', targetUserId).order('created_at', { ascending: false });
+      if (!fallbackReq.error && fallbackReq.data) {
+        return fallbackReq.data as Post[];
+      }
       return localCreatedPosts.filter((p) => p.user_id === targetUserId);
     }
 

@@ -4,122 +4,320 @@ This document records each progressive integration step from mock/local abstract
 
 ---
 
-## Integration: Supabase Posts Database
+## Integration: Realtime Conversations, Messages, Storage, & Trust Score Resolution
 
 **Date:** 2026-09-29  
-**Status:** Connected to Supabase PostgreSQL (`https://gambbvofjmdnjnrhegax.supabase.co`)
-
-### 1. What Changed
-The post data layer was transitioned from mock memory arrays to real Supabase PostgreSQL queries, preserving the exact data-access abstraction layer and UI components:
-
-- **Modified File:** `src/services/postsService.ts`
-  - Replaced dummy in-memory post storage with direct calls to `supabase.from('posts')`.
-  - Connected authenticated user identity from Supabase Auth (`getCurrentUser()`).
-  - Added safe fallback handling for network interruptions or pending database role grants.
-- **Preserved Files & UI:**
-  - `src/components/LostSection.tsx` (unchanged, continues consuming `searchFoundPosts`)
-  - `src/components/FoundSection.tsx` (unchanged, continues consuming `searchLostPosts`)
-  - `src/components/CreateLostPost.tsx` (unchanged, continues consuming `createLostPost`)
-  - `src/components/CreateFoundPost.tsx` (unchanged, continues consuming `createFoundPost`)
-  - `src/components/PostDetail.tsx` (unchanged, continues consuming `getPostById`)
+**Status:** Backend fully implemented; SQL schema created in `supabase_schema.sql`
 
 ---
 
-### 2. Database Operations Now Connected
-
-| Operation | Data Access Function | PostgreSQL Query | Access Level |
-|---|---|---|---|
-| **Read Found Posts** | `getFoundPosts()` | `select * from posts where type = 'found' order by created_at desc` | Public / Guest & Authenticated |
-| **Search Found Posts** | `searchFoundPosts(query, filters)` | `select * from posts where type = 'found' and category = $1 and colour = $2 and location_text ilike $3 and (...)` | Public / Guest & Authenticated |
-| **Read Lost Posts** | `getLostPosts()` | `select * from posts where type = 'lost' order by created_at desc` | Public / Guest & Authenticated |
-| **Search Lost Posts** | `searchLostPosts(query, filters)` | `select * from posts where type = 'lost' and category = $1 and colour = $2 and location_text ilike $3 and (...)` | Public / Guest & Authenticated |
-| **Get Post by ID** | `getPostById(postId)` | `select * from posts where post_id = $1 limit 1` | Public / Guest & Authenticated |
-| **Create Lost Post** | `createLostPost(input)` | `insert into posts (user_id, type, title, desc_text, images, category, colour, location_text, appearance) values ($1, 'lost', ...)` | Authenticated (`user_id = auth.uid()`) |
-| **Create Found Post** | `createFoundPost(input)` | `insert into posts (user_id, type, title, desc_text, images, category, colour, location_text, appearance) values ($1, 'found', ...)` | Authenticated (`user_id = auth.uid()`) |
-| **User's Own Posts** | `getUserPosts(userId)` | `select * from posts where user_id = $1 order by created_at desc` | Authenticated |
-| **Update Post** | `updatePost(postId, input)` | `update posts set title = $1, desc_text = $2, ... where post_id = $3 and user_id = auth.uid()` | Owner only |
-| **Delete Post** | `deletePost(postId)` | `delete from posts where post_id = $1 and user_id = auth.uid()` | Owner only |
+### 1. What Was Already Integrated Before This Task
+- Supabase Client centralized in `src/services/supabaseClient.ts`
+- Supabase Authentication (`@supabase/supabase-js`) with login, signup, session persistence, and dev-bypass fallback
+- Supabase `posts` database queries (`postsService.ts`) for `getFoundPosts`, `getLostPosts`, `searchFoundPosts`, `searchLostPosts`, and `getPostById`
+- Post creation inserting real PostgreSQL rows with UUID auto-generation
+- Mirrored-feed architecture (`/lost` -> `found` posts; `/found` -> `lost` posts)
 
 ---
 
-### 3. Mirrored-Feed Mapping
+### 2. Storage Image Rendering Fix
+- **Root Cause:** Image uploads previously saved raw filenames (e.g. `WIN_20260929_14_00_07_Pro.jpg`) directly in `posts.images` array without resolving them into browser-loadable URLs. Furthermore, the Supabase Storage bucket `item-photos` required provisioning.
+- **Implementation (`src/services/storageService.ts`):**
+  - Added clean helper functions `getPostImageUrl(path)` and `getPostImageUrls(paths)`.
+  - Converts stored relative paths to public URLs using `supabase.storage.from('item-photos').getPublicUrl(cleanPath)`.
+  - Supports direct HTTP, HTTPS, blob, and data URLs.
+  - Implemented `uploadImageFile(file, folder)` which uploads binary image files to Supabase Storage under `item-photos` (`posts/` or `messages/` or `requests/`) and stores the relative path in the database.
+  - Added graceful `onError` fallback handling across UI components to prevent broken image icons.
 
-The strict product rule has been preserved:
+---
 
-```text
-/lost  ──► posts.type = 'found'   (Students missing an item browse what others have FOUND)
-/found ──► posts.type = 'lost'    (Students holding a found item browse who LOST one)
+### 3. Profile & Creator Display Name Integration
+- **Relational Post Query:** Updated `src/services/postsService.ts` with `POST_SELECT_FIELDS = '*, creator:profiles!posts_user_id_fkey(display_name, trust_score)'`.
+- **Privacy Enforcement:** Posts query retrieves the creator's `display_name` and `trust_score`. Email addresses are never queried or displayed to other students.
+- **UI Surfaces:**
+  - `LostSection.tsx`: Post cards display `Reported by [display_name]` and a star badge with their trust score.
+  - `FoundSection.tsx`: Post cards display creator name and trust score.
+  - `PostDetail.tsx`: Header metadata displays creator identity with campus verification badge.
+
+---
+
+### 4. Conversations Schema & Strict Role Semantics
+- **Table Definition:** `public.conversations`
+  - `convo_id uuid primary key default gen_random_uuid()`
+  - `post_id uuid not null references public.posts(post_id) on delete cascade`
+  - `owner_id uuid not null references public.profiles(user_id) on delete cascade`
+  - `finder_id uuid not null references public.profiles(user_id) on delete cascade`
+  - `requested_by uuid not null references public.profiles(user_id) on delete cascade`
+  - `request_text text`
+  - `request_img text`
+  - `accepted boolean not null default false`
+  - `created_at timestamptz not null default now()`
+  - `constraint uq_conversations_post_requester unique (post_id, requested_by)`
+- **Strict Role Calculation:**
+  - `owner = person who lost the item`
+  - `finder = person who found the item`
+  - For `posts.type = 'lost'`: `owner_id = post.user_id`, `finder_id = requesting_user`
+  - For `posts.type = 'found'`: `finder_id = post.user_id`, `owner_id = requesting_user`
+  - Requesters cannot request a conversation on their own post.
+  - Unique constraint `(post_id, requested_by)` prevents duplicate requests by the same user for the same post.
+
+---
+
+### 5. Messages Schema & Real-Time Communication
+- **Table Definition:** `public.messages`
+  - `id bigint generated by default as identity primary key`
+  - `convo_id uuid not null references public.conversations(convo_id) on delete cascade`
+  - `sender_id uuid not null references public.profiles(user_id) on delete cascade`
+  - `msg_text text`
+  - `msg_img text`
+  - `created_at timestamptz not null default now()`
+  - `constraint chk_message_has_content check (msg_text is not null or msg_img is not null)`
+- **Realtime Integration (`src/services/messagesService.ts`):**
+  - Supabase Realtime channel listening to `postgres_changes` on `messages` table filtered by `convo_id=eq.<convoId>`.
+  - Chronological initial database load followed by live message appending.
+  - Automatic deduplication by message `id`.
+  - Unsubscribe and channel teardown in `useEffect` cleanup.
+
+---
+
+### 6. RLS Policies & Authorization Model
+- **Conversations RLS:**
+  - `SELECT`: Only participants (`auth.uid() in (owner_id, finder_id, requested_by)`).
+  - `INSERT`: Only authenticated users creating a request for themselves (`auth.uid() = requested_by`).
+  - `UPDATE`: Only the non-requester participant can update `accepted` to `true` (`auth.uid() in (owner_id, finder_id) and auth.uid() != requested_by`).
+  - `DELETE`: Participants can delete (decline request or end conversation).
+- **Messages RLS:**
+  - `SELECT`: Only participants in accepted conversations.
+  - `INSERT`: Only participants in accepted conversations, with `auth.uid() = sender_id`.
+
+---
+
+### 7. Resolution Flow & Secure Trust Score Increment
+- **Database Function (`resolve_conversation(p_convo_id uuid)`):**
+  - Created as `SECURITY DEFINER` with `SET search_path = public`.
+  - Verifies caller is authenticated (`auth.uid()`).
+  - Verifies conversation exists and is `accepted = true`.
+  - Enforces that **only the owner** (the student who lost the item) can confirm return.
+  - Atomically increments the `finder_id`'s `trust_score` by exactly 1 in `public.profiles`.
+  - Atomically deletes the resolved post (`DELETE FROM public.posts WHERE post_id = convo.post_id`).
+  - Deletes the conversation (`DELETE FROM public.conversations WHERE convo_id = p_convo_id`), cascading to all its messages.
+  - Prevents arbitrary client manipulation of `profiles.trust_score`.
+
+---
+
+### 8. Routes & UI Integration
+- `/post/[id]`: Displays creator display name, attached photos, and live conversation request form.
+- `/dashboard`:
+  - **Incoming Requests**: Accept (activates chat) and Decline (deletes request).
+  - **Active Chats**: Direct entrance to `/chat/[convo_id]`.
+  - **Outgoing Requests**: Real-time status tracking for student's sent requests.
+  - **My Posts**: List of user-created reports with delete controls.
+- `/chat/[convo_id]`: Live chat room with chronological message history, image messaging, realtime Postgres Changes, and owner resolution controls ("Confirm Item Returned" or "End Chat").
+- `/profile`: Student display name editor, verified trust score badge, reputation status, and post history.
+- `Navbar.tsx`: Added quick navigation buttons for Dashboard and Profile.
+
+---
+
+### 9. Files Created & Modified
+- `supabase_schema.sql` (New): Complete, idempotent SQL migration containing all tables, constraints, cascades, RLS policies, Storage bucket provisioning, and the `resolve_conversation` RPC function.
+- `src/types/conversation.ts` (New): TypeScript interfaces for `Conversation` and `Message`.
+- `src/types/post.ts` (Modified): Added `creator` profile structure to `Post`.
+- `src/services/storageService.ts` (New): Image URL generator and Storage upload handler.
+- `src/services/conversationsService.ts` (New): Complete data-access abstraction for conversation requests, acceptance, declining, and resolution.
+- `src/services/messagesService.ts` (New): Message querying, sending, and Supabase Realtime subscriptions.
+- `src/services/postsService.ts` (Modified): Updated post queries to join `creator:profiles!posts_user_id_fkey(display_name, trust_score)` and exported storage helpers.
+- `src/components/LostSection.tsx` (Modified): Added image thumbnail preview and creator name/trust badge.
+- `src/components/FoundSection.tsx` (Modified): Added image thumbnail preview and creator name/trust badge.
+- `src/components/PostDetail.tsx` (Modified): Connected image gallery and real conversation request flow.
+- `src/components/ChatPage.tsx` (New): Real-time chat view with Supabase Postgres Changes and owner resolution triggers.
+- `src/components/Dashboard.tsx` (New): Complete dashboard for requests, chats, and user posts.
+- `src/components/ProfilePage.tsx` (New): Profile and trust score dashboard.
+- `src/components/Navbar.tsx` (Modified): Added Dashboard and Profile navigation links.
+- `src/App.tsx` (Modified): Wired routes for `/dashboard`, `/chat/[convo_id]`, and `/profile`.
+
+---
+
+### 10. Required SQL to Run in Supabase SQL Editor
+Open **[Supabase SQL Editor](https://supabase.com/dashboard/project/gambbvofjmdnjnrhegax/sql/new)** and execute the contents of `supabase_schema.sql` (or copy the script below):
+
+```sql
+-- 1. Ensure tables exist with cascades
+create table if not exists public.conversations (
+  convo_id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.posts(post_id) on delete cascade,
+  owner_id uuid not null references public.profiles(user_id) on delete cascade,
+  finder_id uuid not null references public.profiles(user_id) on delete cascade,
+  requested_by uuid not null references public.profiles(user_id) on delete cascade,
+  request_text text,
+  request_img text,
+  accepted boolean not null default false,
+  created_at timestamptz not null default now(),
+  constraint uq_conversations_post_requester unique (post_id, requested_by)
+);
+
+create table if not exists public.messages (
+  id bigint generated by default as identity primary key,
+  convo_id uuid not null references public.conversations(convo_id) on delete cascade,
+  sender_id uuid not null references public.profiles(user_id) on delete cascade,
+  msg_text text,
+  msg_img text,
+  created_at timestamptz not null default now(),
+  constraint chk_message_has_content check (msg_text is not null or msg_img is not null)
+);
+
+-- 2. Foreign key names for PostgREST joined queries
+alter table public.conversations
+  drop constraint if exists conversations_owner_id_fkey,
+  add constraint conversations_owner_id_fkey foreign key (owner_id) references public.profiles(user_id) on delete cascade;
+
+alter table public.conversations
+  drop constraint if exists conversations_finder_id_fkey,
+  add constraint conversations_finder_id_fkey foreign key (finder_id) references public.profiles(user_id) on delete cascade;
+
+alter table public.conversations
+  drop constraint if exists conversations_requested_by_fkey,
+  add constraint conversations_requested_by_fkey foreign key (requested_by) references public.profiles(user_id) on delete cascade;
+
+alter table public.messages
+  drop constraint if exists messages_sender_id_fkey,
+  add constraint messages_sender_id_fkey foreign key (sender_id) references public.profiles(user_id) on delete cascade;
+
+-- 3. Grants & RLS
+grant all on public.conversations to anon, authenticated;
+grant all on public.messages to anon, authenticated;
+
+alter table public.conversations enable row level security;
+alter table public.messages enable row level security;
+
+-- Conversations RLS
+drop policy if exists "Participants can view conversations" on public.conversations;
+create policy "Participants can view conversations"
+  on public.conversations for select to authenticated
+  using (auth.uid() in (owner_id, finder_id, requested_by));
+
+drop policy if exists "Users can create conversation requests" on public.conversations;
+create policy "Users can create conversation requests"
+  on public.conversations for insert to authenticated
+  with check (auth.uid() = requested_by);
+
+drop policy if exists "Non-requester participant can accept request" on public.conversations;
+create policy "Non-requester participant can accept request"
+  on public.conversations for update to authenticated
+  using (auth.uid() in (owner_id, finder_id) and auth.uid() != requested_by)
+  with check (auth.uid() in (owner_id, finder_id) and auth.uid() != requested_by);
+
+drop policy if exists "Participants can delete conversations" on public.conversations;
+create policy "Participants can delete conversations"
+  on public.conversations for delete to authenticated
+  using (auth.uid() in (owner_id, finder_id));
+
+-- Messages RLS
+drop policy if exists "Participants can view messages" on public.messages;
+create policy "Participants can view messages"
+  on public.messages for select to authenticated
+  using (
+    exists (
+      select 1 from public.conversations c
+      where c.convo_id = messages.convo_id
+        and (c.owner_id = auth.uid() or c.finder_id = auth.uid())
+        and c.accepted = true
+    )
+  );
+
+drop policy if exists "Participants can insert messages in accepted conversations" on public.messages;
+create policy "Participants can insert messages in accepted conversations"
+  on public.messages for insert to authenticated
+  with check (
+    auth.uid() = sender_id
+    and exists (
+      select 1 from public.conversations c
+      where c.convo_id = messages.convo_id
+        and (c.owner_id = auth.uid() or c.finder_id = auth.uid())
+        and c.accepted = true
+    )
+  );
+
+-- 4. Enable Supabase Realtime for Messages
+alter publication supabase_realtime add table public.messages;
+
+-- 5. Secure Transactional Resolution RPC
+create or replace function public.resolve_conversation(p_convo_id uuid)
+returns json language plpgsql security definer set search_path = public as $$
+declare
+  v_user_id uuid;
+  v_convo record;
+  v_finder_id uuid;
+  v_post_id uuid;
+  v_new_trust_score int;
+begin
+  v_user_id := auth.uid();
+  if v_user_id is null then
+    raise exception 'Unauthorized';
+  end if;
+
+  select * into v_convo from public.conversations where convo_id = p_convo_id;
+  if not found then
+    raise exception 'Conversation not found';
+  end if;
+
+  if not v_convo.accepted then
+    raise exception 'Conversation not accepted';
+  end if;
+
+  if v_convo.owner_id != v_user_id then
+    raise exception 'Only the item owner can resolve this conversation';
+  end if;
+
+  v_finder_id := v_convo.finder_id;
+  v_post_id := v_convo.post_id;
+
+  update public.profiles
+  set trust_score = trust_score + 1
+  where user_id = v_finder_id
+  returning trust_score into v_new_trust_score;
+
+  delete from public.posts where post_id = v_post_id;
+  delete from public.conversations where convo_id = p_convo_id;
+
+  return json_build_object(
+    'success', true,
+    'finder_id', v_finder_id,
+    'new_trust_score', v_new_trust_score
+  );
+end;
+$$;
+grant execute on function public.resolve_conversation(uuid) to authenticated;
+
+-- 6. Storage Bucket & Policies
+insert into storage.buckets (id, name, public)
+values ('item-photos', 'item-photos', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "Public Access to Item Photos" on storage.objects;
+create policy "Public Access to Item Photos"
+  on storage.objects for select
+  using (bucket_id = 'item-photos');
+
+drop policy if exists "Authenticated users can upload item photos" on storage.objects;
+create policy "Authenticated users can upload item photos"
+  on storage.objects for insert to authenticated
+  with check (bucket_id = 'item-photos');
 ```
 
-**Opposite-Type Suggestions:**
-- Creating a `lost` post triggers `getSuggestedFoundMatches(lostPost)` (queries and suggests `found` posts).
-- Creating a `found` post triggers `getSuggestedLostMatches(foundPost)` (queries and suggests `lost` posts).
-
 ---
 
-### 4. Security & RLS Policy Implementation
-
-The `posts` table uses PostgreSQL Row Level Security:
-- **Ownership Verification:** Posts can only be created with the current authenticated user's ID (`user_id = auth.uid()`). Arbitrary client spoofing is rejected.
-- **Foreign Key Safety:** Automatic profile upsert ensures the foreign key `posts.user_id -> profiles(user_id)` is satisfied.
-- **SQL RLS & Role Grants to Execute in Supabase SQL Editor:**
-  ```sql
-  -- 1. Grant table privileges to anon and authenticated roles
-  grant select on public.posts to anon, authenticated;
-  grant insert, update, delete on public.posts to authenticated;
-
-  -- 2. Enable Row Level Security
-  alter table public.posts enable row level security;
-
-  -- 3. Read policy: Anyone (guest or authenticated) can browse posts
-  create policy "Public posts are viewable by everyone"
-    on public.posts for select
-    using (true);
-
-  -- 4. Write policies: Only authenticated owners can modify their posts
-  create policy "Users can insert their own posts"
-    on public.posts for insert
-    to authenticated
-    with check (auth.uid() = user_id);
-
-  create policy "Users can update their own posts"
-    on public.posts for update
-    to authenticated
-    using (auth.uid() = user_id)
-    with check (auth.uid() = user_id);
-
-  create policy "Users can delete their own posts"
-    on public.posts for delete
-    to authenticated
-    using (auth.uid() = user_id);
-  ```
-
----
-
-### 5. Status Summary
-
-#### NOW REAL (Connected to Live Supabase Backend)
-- **Supabase Authentication**: `@supabase/supabase-js` login, signup, session persistence, and auth state listeners.
-- **Supabase `posts` queries**: Live SELECT, INSERT, UPDATE, DELETE connected through `postsService.ts`.
-- **Lost feed**: Real `found` posts queried and filtered.
-- **Found feed**: Real `lost` posts queried and filtered.
-- **Post detail retrieval**: Real `post_id` lookup via `getPostById`.
-- **Post creation**: Real `lost` and `found` rows inserted into `posts` with current `user_id = auth.uid()`.
-- **Post search/filtering**: Real database queries supporting keywords, categories, colours, and locations.
-- **Current-user post ownership**: Strictly bounded to the authenticated session.
-
-#### STILL DUMMY / NOT CONNECTED (Untouched as required)
-- **Supabase Storage**: Image uploads remain placeholders (`images: text[]`).
-- **Gemini API**: AI structured tag extraction from description remains dummy/client-edited.
-- **AI Matching**: Post suggestion scoring uses client-side keyword and tag ranking.
-- **Conversations**: The `conversations` table and request flow are not yet connected (`Request Conversation` is an isolated UI state).
-- **Messages**: The `messages` table is not yet connected.
-- **Realtime**: Supabase Postgres Changes listeners on `messages` are not yet connected.
-- **Trust-score resolution**: PostgreSQL `SECURITY DEFINER` increment function is not yet connected.
-
----
-
-### 6. Next Integration Step
-
-**Next step: integrate conversations/messages and realtime communication.**
-*(Do not implement this step until explicitly prompted).*
+### 11. Manual Verification Procedure
+1. **User A (Finder)** creates a `found` post: "Found Blue AirPods Case".
+2. **User B (Owner)** browses `/lost` (which queries `found` posts), spots the AirPods, and opens the post detail page `/post/[id]`.
+3. User B types a request message and submits it.
+   - `owner_id = User B`, `finder_id = User A`, `requested_by = User B`, `accepted = false`.
+4. **User A** logs in, visits `/dashboard` &rarr; sees the incoming request from User B.
+5. User A clicks **"Accept & Start Chat"** &rarr; `accepted = true`.
+6. Both User A and User B enter `/chat/[convo_id]`:
+   - Messages are loaded chronologically.
+   - Messages sent by User A appear in real-time on User B's screen via Supabase Realtime without refreshing.
+7. After handing over the AirPods, User B (the owner) clicks **"Item Returned"**:
+   - `resolve_conversation` executes transactionally in PostgreSQL.
+   - User A's `trust_score` increments by 1.
+   - The AirPods post is deleted from the feed.
+   - The conversation and chat history are cleanly deleted.

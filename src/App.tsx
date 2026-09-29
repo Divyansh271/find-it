@@ -8,6 +8,9 @@ import { CreateFoundPost } from './components/CreateFoundPost';
 import { PostDetail } from './components/PostDetail';
 import { LoginPage } from './components/LoginPage';
 import { SignupPage } from './components/SignupPage';
+import { Dashboard } from './components/Dashboard';
+import { ChatPage } from './components/ChatPage';
+import { ProfilePage } from './components/ProfilePage';
 import { User } from './types/auth';
 import { getCurrentUser, onAuthStateChange, logout } from './services/authService';
 
@@ -66,6 +69,10 @@ export default function App() {
   const postId = isPostDetail ? pathname.replace('/post/', '') : null;
   const isLogin = pathname === '/auth/login';
   const isSignup = pathname === '/auth/signup';
+  const isDashboard = pathname === '/dashboard';
+  const isProfile = pathname === '/profile';
+  const isChat = pathname.startsWith('/chat/');
+  const convoId = isChat ? pathname.replace('/chat/', '') : null;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans selection:bg-slate-900 selection:text-white">
@@ -75,6 +82,8 @@ export default function App() {
         onNavigateHome={() => navigate('/')}
         onNavigateLogin={() => navigate('/auth/login')}
         onNavigateSignup={() => navigate('/auth/signup')}
+        onNavigateDashboard={() => navigate('/dashboard')}
+        onNavigateProfile={() => navigate('/profile')}
         onLogout={handleLogout}
       />
 
@@ -159,6 +168,63 @@ export default function App() {
           )
         )}
 
+        {/* PROTECTED: Dashboard (/dashboard) */}
+        {isDashboard && (
+          !currentUser ? (
+            <LoginPage
+              redirectUrl="/dashboard"
+              onSuccess={(target) => navigate(target)}
+              onNavigateToSignup={() => navigate('/auth/signup?redirect=%2Fdashboard')}
+              onBackToHome={() => navigate('/')}
+            />
+          ) : (
+            <Dashboard
+              currentUser={currentUser}
+              onNavigateToChat={(id) => navigate(`/chat/${id}`)}
+              onNavigateToPost={(id) => navigate(`/post/${id}`)}
+              onCreatePost={(type) => navigate(`/post/new?type=${type}`)}
+            />
+          )
+        )}
+
+        {/* PROTECTED: Live Chat (/chat/[convo_id]) */}
+        {isChat && convoId && (
+          !currentUser ? (
+            <LoginPage
+              redirectUrl={currentUrl}
+              onSuccess={(target) => navigate(target)}
+              onNavigateToSignup={() => navigate(`/auth/signup?redirect=${encodeURIComponent(currentUrl)}`)}
+              onBackToHome={() => navigate('/')}
+            />
+          ) : (
+            <ChatPage
+              convoId={convoId}
+              currentUser={currentUser}
+              onBack={() => navigate('/dashboard')}
+              onNavigateToPost={(id) => navigate(`/post/${id}`)}
+              onNavigateToDashboard={() => navigate('/dashboard')}
+            />
+          )
+        )}
+
+        {/* PROTECTED: User Profile (/profile) */}
+        {isProfile && (
+          !currentUser ? (
+            <LoginPage
+              redirectUrl="/profile"
+              onSuccess={(target) => navigate(target)}
+              onNavigateToSignup={() => navigate('/auth/signup?redirect=%2Fprofile')}
+              onBackToHome={() => navigate('/')}
+            />
+          ) : (
+            <ProfilePage
+              currentUser={currentUser}
+              onNavigateToPost={(id) => navigate(`/post/${id}`)}
+              onNavigateToDashboard={() => navigate('/dashboard')}
+            />
+          )
+        )}
+
         {/* PUBLIC: Post Detail View */}
         {isPostDetail && postId && (
           <PostDetail
@@ -166,6 +232,8 @@ export default function App() {
             currentUser={currentUser}
             onBack={() => navigate(previousSection || '/')}
             onRequireAuth={handleRequireAuth}
+            onNavigateToChat={(id) => navigate(`/chat/${id}`)}
+            onNavigateToDashboard={() => navigate('/dashboard')}
           />
         )}
       </main>

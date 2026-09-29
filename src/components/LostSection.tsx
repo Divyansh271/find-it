@@ -12,12 +12,15 @@ import {
   Tag,
   Palette,
   CheckCircle2,
-  HelpCircle
+  HelpCircle,
+  User as UserIcon,
+  ImageIcon
 } from 'lucide-react';
 import { Post, PostFilterOptions } from '../types/post';
 import {
   searchFoundPosts,
   getFoundPosts,
+  getPostImageUrl,
   CATEGORIES,
   COLOURS
 } from '../services/postsService';
@@ -273,6 +276,21 @@ export const LostSection: React.FC<LostSectionProps> = ({
                   </span>
                 </div>
 
+                {/* Image Thumbnail Preview if available */}
+                {post.images && post.images.length > 0 && post.images[0] && (
+                  <div className="mb-3 rounded-xl overflow-hidden bg-slate-100 border border-slate-200/80 max-h-48 flex items-center justify-center">
+                    <img
+                      src={getPostImageUrl(post.images[0])}
+                      alt={post.title}
+                      className="w-full h-40 object-cover group-hover:scale-[1.02] transition-transform duration-300"
+                      onError={(e) => {
+                        // Hide broken image placeholder gracefully
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+
                 {/* Title */}
                 <h3 className="text-base font-bold text-slate-900 group-hover:text-rose-600 transition-colors line-clamp-1 mb-1.5">
                   {post.title}
@@ -282,6 +300,19 @@ export const LostSection: React.FC<LostSectionProps> = ({
                 <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed mb-3">
                   {post.desc_text}
                 </p>
+
+                {/* Creator Display Name & Trust Score */}
+                <div className="flex items-center gap-2 mb-3 text-[11px] text-slate-500">
+                  <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+                    <UserIcon className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>{post.creator?.display_name || 'Campus Student'}</span>
+                  </span>
+                  {typeof post.creator?.trust_score === 'number' && (
+                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                      ★ {post.creator.trust_score}
+                    </span>
+                  )}
+                </div>
 
                 {/* Tags (Category & Colour) */}
                 <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[11px]">

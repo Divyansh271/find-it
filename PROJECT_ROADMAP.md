@@ -241,12 +241,13 @@ create policy "Users can delete their own posts"
 
 ---
 
-## 6. Next Backend Integration — Step-by-Step Checklist for Codex
+## 6. Backend Integration Checklist
 
 1. [x] **Supabase Client Setup**: Connected in `src/services/supabaseClient.ts`.
 2. [x] **Supabase Auth Wired**: `authService.ts` calls `supabase.auth.*`.
 3. [x] **Supabase Posts Data Layer**: `postsService.ts` connects `posts` read, search, filter, and create operations.
-4. [ ] **Supabase Storage**: Create an `item-photos` bucket for image uploads.
-5. [ ] **Conversations & Dashboard**: Implement `conversations` table and connect request/accept flow.
-6. [ ] **Realtime Chat & Resolution**: Enable Realtime on `messages` table and implement the `resolve_handover` PostgreSQL function.
-7. [ ] **Gemini AI Tag Extraction**: Add server-side proxy route `/api/extract-tags` calling Gemini to extract category, colour, location from post description.
+4. [x] **Supabase Storage Image Rendering**: Helper `getPostImageUrl()` and `uploadImageFile()` connected in `src/services/storageService.ts`.
+5. [x] **Post Creator Display Name**: Relational join with `profiles` to show creator display name and trust score.
+6. [x] **Conversations & Dashboard**: `conversations` table, request submission, accept, decline, and dashboard implemented in `src/services/conversationsService.ts` and `src/components/Dashboard.tsx`.
+7. [x] **Realtime Chat & Transactional Resolution**: Supabase Realtime Postgres Changes on `messages` table and secure `resolve_conversation` RPC function implemented.
+8. [ ] **Gemini AI Tag Extraction**: Add server-side proxy route `/api/extract-tags` calling Gemini to extract category, colour, location from post description.

@@ -1,5 +1,10 @@
 export type PostType = 'lost' | 'found';
 
+export interface PostCreator {
+  display_name: string;
+  trust_score: number;
+}
+
 export interface Post {
   post_id: string;
   user_id: string;
@@ -12,6 +17,7 @@ export interface Post {
   location_text?: string | null;
   appearance?: Record<string, any> | null;
   created_at: string;
+  creator?: PostCreator;
 }
 
 export interface PostFilterOptions {
