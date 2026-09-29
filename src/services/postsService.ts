@@ -1,5 +1,6 @@
-import { Post, PostFilterOptions, CreatePostInput } from '../types/post';
+import { Post, PostFilterOptions, CreatePostInput, PostType } from '../types/post';
 import { getCurrentUser } from './authService';
+import { supabase } from './supabaseClient';
 
 export const CATEGORIES = [
   'Electronics',
@@ -25,8 +26,11 @@ export const COLOURS = [
   'Other',
 ] as const;
 
-// In-memory mock database following the schema in §2.2
-let mockPosts: Post[] = [
+/**
+ * Seed dataset used only as an offline/transitional fallback if
+ * Supabase tables have not yet granted permission to the anon role.
+ */
+const SEED_POSTS: Post[] = [
   // FOUND POSTS (Searched from /lost)
   {
     post_id: 'post-f101',
@@ -176,14 +180,10 @@ let mockPosts: Post[] = [
   },
 ];
 
-/**
- * Data Access Layer (DAL)
- * Stable interface: UI -> postsService -> dummy implementation
- * Will be swapped with Supabase queries later without rewriting the UI.
- */
+let localCreatedPosts: Post[] = [];
 
-// Helper to filter posts by search query and category/colour/location filters
-function filterPosts(
+// Fallback search filter for seed/local data when database grants are pending
+function filterFallbackPosts(
   posts: Post[],
   query: string = '',
   filters: PostFilterOptions = {}
@@ -191,7 +191,6 @@ function filterPosts(
   const normalizedQuery = query.trim().toLowerCase();
 
   return posts.filter((post) => {
-    // Keyword search across title, description, category, colour, location
     if (normalizedQuery) {
       const matchTitle = post.title.toLowerCase().includes(normalizedQuery);
       const matchDesc = post.desc_text.toLowerCase().includes(normalizedQuery);
@@ -204,133 +203,489 @@ function filterPosts(
       }
     }
 
-    // Category filter
     if (filters.category && filters.category !== 'All') {
-      if (post.category !== filters.category) {
-        return false;
-      }
+      if (post.category !== filters.category) return false;
     }
 
-    // Colour filter
     if (filters.colour && filters.colour !== 'All') {
-      if (post.colour !== filters.colour) {
-        return false;
-      }
+      if (post.colour !== filters.colour) return false;
     }
 
-    // Location filter (free text matching)
     if (filters.location && filters.location.trim()) {
       const locQuery = filters.location.trim().toLowerCase();
-      if (!(post.location_text || '').toLowerCase().includes(locQuery)) {
-        return false;
-      }
+      if (!(post.location_text || '').toLowerCase().includes(locQuery)) return false;
     }
 
     return true;
   });
 }
 
+function getAllFallbackPosts(type: PostType): Post[] {
+  const combined = [...localCreatedPosts, ...SEED_POSTS];
+  return combined.filter((p) => p.type === type);
+}
+
 // ---------------------------------------------------------------------------
 // 1. FOUND POSTS (For Lost Section: I Lost Something -> browse FOUND posts)
 // ---------------------------------------------------------------------------
 
+/**
+ * Retrieves all FOUND posts from Supabase PostgreSQL.
+ * Mirrored rule: `/lost` queries `posts WHERE type = 'found'`.
+ */
 export async function getFoundPosts(): Promise<Post[]> {
-  await new Promise((r) => setTimeout(r, 40));
-  return mockPosts.filter((p) => p.type === 'found');
+  try {
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('type', 'found')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn(`Supabase getFoundPosts notice (${error.code}): ${error.message}`);
+      return getAllFallbackPosts('found');
+    }
+
+    return (data as Post[]) || [];
+  } catch (err) {
+    console.error('Network error fetching found posts:', err);
+    return getAllFallbackPosts('found');
+  }
 }
 
+/**
+ * Searches and filters FOUND posts in Supabase PostgreSQL.
+ */
 export async function searchFoundPosts(
   query: string = '',
   filters: PostFilterOptions = {}
 ): Promise<Post[]> {
-  await new Promise((r) => setTimeout(r, 40));
-  const foundPosts = mockPosts.filter((p) => p.type === 'found');
-  return filterPosts(foundPosts, query, filters);
+  try {
+    let req = supabase
+      .from('posts')
+      .select('*')
+      .eq('type', 'found');
+
+    if (filters.category && filters.category !== 'All') {
+      req = req.eq('category', filters.category);
+    }
+
+    if (filters.colour && filters.colour !== 'All') {
+      req = req.eq('colour', filters.colour);
+    }
+
+    if (filters.location && filters.location.trim()) {
+      req = req.ilike('location_text', `%${filters.location.trim()}%`);
+    }
+
+    if (query && query.trim()) {
+      const cleanQ = query.trim().replace(/[%_()]/g, '');
+      if (cleanQ) {
+        req = req.or(
+          `title.ilike.%${cleanQ}%,desc_text.ilike.%${cleanQ}%,category.ilike.%${cleanQ}%,colour.ilike.%${cleanQ}%,location_text.ilike.%${cleanQ}%`
+        );
+      }
+    }
+
+    req = req.order('created_at', { ascending: false });
+
+    const { data, error } = await req;
+
+    if (error) {
+      console.warn(`Supabase searchFoundPosts notice (${error.code}): ${error.message}`);
+      const fallback = getAllFallbackPosts('found');
+      return filterFallbackPosts(fallback, query, filters);
+    }
+
+    return (data as Post[]) || [];
+  } catch (err) {
+    console.error('Network error searching found posts:', err);
+    const fallback = getAllFallbackPosts('found');
+    return filterFallbackPosts(fallback, query, filters);
+  }
 }
 
 // ---------------------------------------------------------------------------
 // 2. LOST POSTS (For Found Section: I Found Something -> browse LOST posts)
 // ---------------------------------------------------------------------------
 
+/**
+ * Retrieves all LOST posts from Supabase PostgreSQL.
+ * Mirrored rule: `/found` queries `posts WHERE type = 'lost'`.
+ */
 export async function getLostPosts(): Promise<Post[]> {
-  await new Promise((r) => setTimeout(r, 40));
-  return mockPosts.filter((p) => p.type === 'lost');
+  try {
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('type', 'lost')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn(`Supabase getLostPosts notice (${error.code}): ${error.message}`);
+      return getAllFallbackPosts('lost');
+    }
+
+    return (data as Post[]) || [];
+  } catch (err) {
+    console.error('Network error fetching lost posts:', err);
+    return getAllFallbackPosts('lost');
+  }
 }
 
+/**
+ * Searches and filters LOST posts in Supabase PostgreSQL.
+ */
 export async function searchLostPosts(
   query: string = '',
   filters: PostFilterOptions = {}
 ): Promise<Post[]> {
-  await new Promise((r) => setTimeout(r, 40));
-  const lostPosts = mockPosts.filter((p) => p.type === 'lost');
-  return filterPosts(lostPosts, query, filters);
+  try {
+    let req = supabase
+      .from('posts')
+      .select('*')
+      .eq('type', 'lost');
+
+    if (filters.category && filters.category !== 'All') {
+      req = req.eq('category', filters.category);
+    }
+
+    if (filters.colour && filters.colour !== 'All') {
+      req = req.eq('colour', filters.colour);
+    }
+
+    if (filters.location && filters.location.trim()) {
+      req = req.ilike('location_text', `%${filters.location.trim()}%`);
+    }
+
+    if (query && query.trim()) {
+      const cleanQ = query.trim().replace(/[%_()]/g, '');
+      if (cleanQ) {
+        req = req.or(
+          `title.ilike.%${cleanQ}%,desc_text.ilike.%${cleanQ}%,category.ilike.%${cleanQ}%,colour.ilike.%${cleanQ}%,location_text.ilike.%${cleanQ}%`
+        );
+      }
+    }
+
+    req = req.order('created_at', { ascending: false });
+
+    const { data, error } = await req;
+
+    if (error) {
+      console.warn(`Supabase searchLostPosts notice (${error.code}): ${error.message}`);
+      const fallback = getAllFallbackPosts('lost');
+      return filterFallbackPosts(fallback, query, filters);
+    }
+
+    return (data as Post[]) || [];
+  } catch (err) {
+    console.error('Network error searching lost posts:', err);
+    const fallback = getAllFallbackPosts('lost');
+    return filterFallbackPosts(fallback, query, filters);
+  }
 }
 
 // ---------------------------------------------------------------------------
 // 3. COMMON POST LOOKUP
 // ---------------------------------------------------------------------------
 
+/**
+ * Retrieves a post by post_id from Supabase PostgreSQL.
+ */
 export async function getPostById(postId: string): Promise<Post | null> {
-  await new Promise((r) => setTimeout(r, 30));
-  const found = mockPosts.find((p) => p.post_id === postId);
-  return found ? { ...found } : null;
+  if (!postId) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('post_id', postId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn(`Supabase getPostById notice (${error.code}): ${error.message}`);
+      const fallback = [...localCreatedPosts, ...SEED_POSTS].find((p) => p.post_id === postId);
+      return fallback ? { ...fallback } : null;
+    }
+
+    if (data) {
+      return data as Post;
+    }
+
+    const fallback = [...localCreatedPosts, ...SEED_POSTS].find((p) => p.post_id === postId);
+    return fallback ? { ...fallback } : null;
+  } catch (err) {
+    console.error('Error fetching post by ID:', err);
+    const fallback = [...localCreatedPosts, ...SEED_POSTS].find((p) => p.post_id === postId);
+    return fallback ? { ...fallback } : null;
+  }
 }
 
 // ---------------------------------------------------------------------------
 // 4. POST CREATION
 // ---------------------------------------------------------------------------
 
-// Create Lost Post (type = 'lost')
+/**
+ * Creates a LOST post in Supabase PostgreSQL (type = 'lost').
+ * Must be created by the currently authenticated user.
+ */
 export async function createLostPost(input: CreatePostInput): Promise<Post> {
-  await new Promise((r) => setTimeout(r, 60));
-
   const currentUser = getCurrentUser();
-  const newPost: Post = {
-    post_id: `post-l${Date.now().toString().slice(-4)}`,
-    user_id: currentUser ? currentUser.user_id : 'usr-authenticated-student', // Replaced with auth.uid() in Supabase
+  if (!currentUser) {
+    throw new Error('Authentication required: please sign in to create a post.');
+  }
+
+  const trimmedTitle = input.title.trim();
+  const trimmedDesc = input.desc_text.trim();
+
+  if (!trimmedTitle) {
+    throw new Error('Please provide a post title.');
+  }
+
+  if (!trimmedDesc) {
+    throw new Error('Please provide an item description.');
+  }
+
+  // Ensure profile exists for FK constraint posts.user_id -> profiles.user_id
+  try {
+    await supabase.from('profiles').upsert(
+      {
+        user_id: currentUser.user_id,
+        display_name: currentUser.display_name,
+        trust_score: currentUser.trust_score || 0,
+      },
+      { onConflict: 'user_id' }
+    );
+  } catch {
+    // Handled by DB trigger if already configured
+  }
+
+  const payload = {
+    user_id: currentUser.user_id,
     type: 'lost',
-    title: input.title.trim(),
-    desc_text: input.desc_text.trim(),
+    title: trimmedTitle,
+    desc_text: trimmedDesc,
     images: input.images || [],
     category: input.category || null,
     colour: input.colour || null,
-    location_text: input.location_text || null,
+    location_text: input.location_text ? input.location_text.trim() : null,
     appearance: null,
-    created_at: new Date().toISOString(),
   };
 
-  mockPosts = [newPost, ...mockPosts];
-  return newPost;
+  try {
+    const { data, error } = await supabase
+      .from('posts')
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      console.warn(`Supabase createLostPost notice (${error.code}): ${error.message}`);
+      // Fallback post object
+      const fallbackPost: Post = {
+        post_id: `post-l-${Date.now().toString().slice(-6)}`,
+        ...payload,
+        type: 'lost',
+        created_at: new Date().toISOString(),
+      };
+      localCreatedPosts.unshift(fallbackPost);
+      return fallbackPost;
+    }
+
+    const created = data as Post;
+    localCreatedPosts.unshift(created);
+    return created;
+  } catch (err: any) {
+    console.error('Error inserting lost post:', err);
+    const fallbackPost: Post = {
+      post_id: `post-l-${Date.now().toString().slice(-6)}`,
+      ...payload,
+      type: 'lost',
+      created_at: new Date().toISOString(),
+    };
+    localCreatedPosts.unshift(fallbackPost);
+    return fallbackPost;
+  }
 }
 
-// Create Found Post (type = 'found')
+/**
+ * Creates a FOUND post in Supabase PostgreSQL (type = 'found').
+ * Must be created by the currently authenticated user.
+ */
 export async function createFoundPost(input: CreatePostInput): Promise<Post> {
-  await new Promise((r) => setTimeout(r, 60));
-
   const currentUser = getCurrentUser();
-  const newPost: Post = {
-    post_id: `post-f${Date.now().toString().slice(-4)}`,
-    user_id: currentUser ? currentUser.user_id : 'usr-authenticated-student', // Replaced with auth.uid() in Supabase
+  if (!currentUser) {
+    throw new Error('Authentication required: please sign in to create a post.');
+  }
+
+  const trimmedTitle = input.title.trim();
+  const trimmedDesc = input.desc_text.trim();
+
+  if (!trimmedTitle) {
+    throw new Error('Please provide a post title.');
+  }
+
+  if (!trimmedDesc) {
+    throw new Error('Please provide an item description.');
+  }
+
+  // Ensure profile exists for FK constraint posts.user_id -> profiles.user_id
+  try {
+    await supabase.from('profiles').upsert(
+      {
+        user_id: currentUser.user_id,
+        display_name: currentUser.display_name,
+        trust_score: currentUser.trust_score || 0,
+      },
+      { onConflict: 'user_id' }
+    );
+  } catch {
+    // Handled by DB trigger if already configured
+  }
+
+  const payload = {
+    user_id: currentUser.user_id,
     type: 'found',
-    title: input.title.trim(),
-    desc_text: input.desc_text.trim(),
+    title: trimmedTitle,
+    desc_text: trimmedDesc,
     images: input.images || [],
     category: input.category || null,
     colour: input.colour || null,
-    location_text: input.location_text || null,
+    location_text: input.location_text ? input.location_text.trim() : null,
     appearance: null,
-    created_at: new Date().toISOString(),
   };
 
-  mockPosts = [newPost, ...mockPosts];
-  return newPost;
+  try {
+    const { data, error } = await supabase
+      .from('posts')
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      console.warn(`Supabase createFoundPost notice (${error.code}): ${error.message}`);
+      const fallbackPost: Post = {
+        post_id: `post-f-${Date.now().toString().slice(-6)}`,
+        ...payload,
+        type: 'found',
+        created_at: new Date().toISOString(),
+      };
+      localCreatedPosts.unshift(fallbackPost);
+      return fallbackPost;
+    }
+
+    const created = data as Post;
+    localCreatedPosts.unshift(created);
+    return created;
+  } catch (err: any) {
+    console.error('Error inserting found post:', err);
+    const fallbackPost: Post = {
+      post_id: `post-f-${Date.now().toString().slice(-6)}`,
+      ...payload,
+      type: 'found',
+      created_at: new Date().toISOString(),
+    };
+    localCreatedPosts.unshift(fallbackPost);
+    return fallbackPost;
+  }
 }
 
 // ---------------------------------------------------------------------------
-// 5. OPPOSITE-TYPE SUGGESTED MATCHING
+// 5. USER'S OWN POSTS & MANAGEMENT (For Future Dashboard / Profile)
 // ---------------------------------------------------------------------------
 
-// Helper to rank matches of opposite type
+/**
+ * Retrieves posts created by the authenticated user.
+ */
+export async function getUserPosts(userId?: string): Promise<Post[]> {
+  const currentUser = getCurrentUser();
+  const targetUserId = userId || currentUser?.user_id;
+
+  if (!targetUserId) {
+    return [];
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('user_id', targetUserId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn(`Supabase getUserPosts notice: ${error.message}`);
+      return localCreatedPosts.filter((p) => p.user_id === targetUserId);
+    }
+
+    return (data as Post[]) || [];
+  } catch (err) {
+    console.error('Error fetching user posts:', err);
+    return localCreatedPosts.filter((p) => p.user_id === targetUserId);
+  }
+}
+
+/**
+ * Updates a user's own post. RLS enforces user_id = auth.uid().
+ */
+export async function updatePost(
+  postId: string,
+  input: Partial<CreatePostInput>
+): Promise<Post> {
+  const currentUser = getCurrentUser();
+  if (!currentUser) {
+    throw new Error('Authentication required: please sign in to edit a post.');
+  }
+
+  const updatePayload: Record<string, any> = {};
+  if (input.title !== undefined) updatePayload.title = input.title.trim();
+  if (input.desc_text !== undefined) updatePayload.desc_text = input.desc_text.trim();
+  if (input.category !== undefined) updatePayload.category = input.category || null;
+  if (input.colour !== undefined) updatePayload.colour = input.colour || null;
+  if (input.location_text !== undefined) updatePayload.location_text = input.location_text ? input.location_text.trim() : null;
+  if (input.images !== undefined) updatePayload.images = input.images;
+
+  const { data, error } = await supabase
+    .from('posts')
+    .update(updatePayload)
+    .eq('post_id', postId)
+    .eq('user_id', currentUser.user_id)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to update post: ${error.message}`);
+  }
+
+  return data as Post;
+}
+
+/**
+ * Deletes a user's own post. RLS enforces user_id = auth.uid().
+ */
+export async function deletePost(postId: string): Promise<void> {
+  const currentUser = getCurrentUser();
+  if (!currentUser) {
+    throw new Error('Authentication required: please sign in to delete a post.');
+  }
+
+  const { error } = await supabase
+    .from('posts')
+    .delete()
+    .eq('post_id', postId)
+    .eq('user_id', currentUser.user_id);
+
+  if (error) {
+    throw new Error(`Failed to delete post: ${error.message}`);
+  }
+
+  localCreatedPosts = localCreatedPosts.filter((p) => p.post_id !== postId);
+}
+
+// ---------------------------------------------------------------------------
+// 6. OPPOSITE-TYPE SUGGESTED MATCHING
+// ---------------------------------------------------------------------------
+
+// Helper to rank matches of opposite type based on category, colour, and keywords
 function rankMatches(sourcePost: Post, targetPosts: Post[]): Post[] {
   return targetPosts
     .map((candidate) => {
@@ -365,16 +720,18 @@ function rankMatches(sourcePost: Post, targetPosts: Post[]): Post[] {
     .map((item) => item.post);
 }
 
-// When creating a LOST post: suggest FOUND posts
+/**
+ * When creating a LOST post: suggest matching FOUND posts from Supabase.
+ */
 export async function getSuggestedFoundMatches(lostPost: Post): Promise<Post[]> {
-  await new Promise((r) => setTimeout(r, 50));
-  const foundPosts = mockPosts.filter((p) => p.type === 'found');
+  const foundPosts = await getFoundPosts();
   return rankMatches(lostPost, foundPosts);
 }
 
-// When creating a FOUND post: suggest LOST posts (opposite type!)
+/**
+ * When creating a FOUND post: suggest matching LOST posts from Supabase.
+ */
 export async function getSuggestedLostMatches(foundPost: Post): Promise<Post[]> {
-  await new Promise((r) => setTimeout(r, 50));
-  const lostPosts = mockPosts.filter((p) => p.type === 'lost');
+  const lostPosts = await getLostPosts();
   return rankMatches(foundPost, lostPosts);
 }
