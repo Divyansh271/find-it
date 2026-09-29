@@ -18,17 +18,30 @@ import {
   COLOURS
 } from '../services/postsService';
 
+import { User } from '../types/auth';
+
 interface FoundSectionProps {
+  currentUser: User | null;
   onBackToHome: () => void;
   onCreateFoundPost: () => void;
   onSelectPost: (postId: string) => void;
+  onRequireAuth: (targetUrl: string) => void;
 }
 
 export const FoundSection: React.FC<FoundSectionProps> = ({
+  currentUser,
   onBackToHome,
   onCreateFoundPost,
   onSelectPost,
+  onRequireAuth,
 }) => {
+  const handleCreateClick = () => {
+    if (currentUser) {
+      onCreateFoundPost();
+    } else {
+      onRequireAuth('/post/new?type=found');
+    }
+  };
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -109,7 +122,7 @@ export const FoundSection: React.FC<FoundSectionProps> = ({
           </div>
 
           <button
-            onClick={onCreateFoundPost}
+            onClick={handleCreateClick}
             className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors shrink-0 cursor-pointer"
           >
             <PlusCircle className="w-4 h-4" />
@@ -227,7 +240,7 @@ export const FoundSection: React.FC<FoundSectionProps> = ({
               </button>
             )}
             <button
-              onClick={onCreateFoundPost}
+              onClick={handleCreateClick}
               className="px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors cursor-pointer"
             >
               Post a Found Item

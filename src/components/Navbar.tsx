@@ -1,13 +1,24 @@
 import React from 'react';
-import { Compass } from 'lucide-react';
+import { Compass, User as UserIcon, LogOut } from 'lucide-react';
+import { User } from '../types/auth';
 
 interface NavbarProps {
+  currentUser: User | null;
   onNavigateHome: () => void;
+  onNavigateLogin: () => void;
+  onNavigateSignup: () => void;
+  onLogout: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onNavigateHome }) => {
+export const Navbar: React.FC<NavbarProps> = ({
+  currentUser,
+  onNavigateHome,
+  onNavigateLogin,
+  onNavigateSignup,
+  onLogout,
+}) => {
   return (
-    <header className="w-full max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
+    <header className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-5 flex items-center justify-between">
       {/* Brand Logo */}
       <button
         onClick={onNavigateHome}
@@ -23,22 +34,45 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigateHome }) => {
         </div>
       </button>
 
-      {/* Dummy Auth Buttons (Simple buttons, no modals or text fields) */}
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => {}}
-          className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 transition-colors cursor-pointer"
-        >
-          Log In
-        </button>
-        <button
-          type="button"
-          onClick={() => {}}
-          className="px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs transition-colors cursor-pointer"
-        >
-          Sign Up
-        </button>
+      {/* Auth State / Actions */}
+      <div className="flex items-center gap-2.5 sm:gap-3">
+        {currentUser ? (
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Authenticated User Badge (Display Name) */}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100/80 border border-slate-200/80 rounded-xl text-xs font-semibold text-slate-800">
+              <UserIcon className="w-3.5 h-3.5 text-indigo-600" />
+              <span>{currentUser.display_name}</span>
+            </div>
+
+            {/* Logout Action */}
+            <button
+              type="button"
+              onClick={onLogout}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+              title="Sign out"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sign Out</span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={onNavigateLogin}
+              className="px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 transition-colors cursor-pointer"
+            >
+              Log In
+            </button>
+            <button
+              type="button"
+              onClick={onNavigateSignup}
+              className="px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs transition-colors cursor-pointer"
+            >
+              Sign Up
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

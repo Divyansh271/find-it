@@ -6,13 +6,25 @@ import { FoundSection } from './components/FoundSection';
 import { CreateLostPost } from './components/CreateLostPost';
 import { CreateFoundPost } from './components/CreateFoundPost';
 import { PostDetail } from './components/PostDetail';
+import { LoginPage } from './components/LoginPage';
+import { SignupPage } from './components/SignupPage';
+import { User } from './types/auth';
+import { getCurrentUser, onAuthStateChange, logout } from './services/authService';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(getCurrentUser);
   const [currentUrl, setCurrentUrl] = useState(() => {
     return window.location.pathname + window.location.search;
   });
-
   const [previousSection, setPreviousSection] = useState<string>('/lost');
+
+  // Subscribe to auth state changes from authService
+  useEffect(() => {
+    const unsubscribe = onAuthStateChange((user) => {
+      setCurrentUser(user);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Sync route changes with browser history
   useEffect(() => {
@@ -35,22 +47,40 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleRequireAuth = (targetUrl: string) => {
+    navigate(`/auth/login?redirect=${encodeURIComponent(targetUrl)}`);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+  };
+
   // Route Resolver
   const [pathname, search] = currentUrl.split('?');
   const searchParams = new URLSearchParams(search || '');
   const postTypeParam = searchParams.get('type');
+  const redirectParam = searchParams.get('redirect');
 
   const isPostNew = pathname === '/post/new';
   const isPostDetail = pathname.startsWith('/post/') && !isPostNew;
   const postId = isPostDetail ? pathname.replace('/post/', '') : null;
+  const isLogin = pathname === '/auth/login';
+  const isSignup = pathname === '/auth/signup';
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans selection:bg-slate-900 selection:text-white">
-      {/* Top Header with findIt logo & dummy auth buttons */}
-      <Navbar onNavigateHome={() => navigate('/')} />
+      {/* Top Header with findIt logo & auth state */}
+      <Navbar
+        currentUser={currentUser}
+        onNavigateHome={() => navigate('/')}
+        onNavigateLogin={() => navigate('/auth/login')}
+        onNavigateSignup={() => navigate('/auth/signup')}
+        onLogout={handleLogout}
+      />
 
       {/* Main Viewport Routing */}
       <main className="flex-1 flex flex-col">
+        {/* PUBLIC: Landing Page */}
         {pathname === '/' && (
           <LandingPage
             onSelectLost={() => navigate('/lost')}
@@ -58,40 +88,84 @@ export default function App() {
           />
         )}
 
+        {/* PUBLIC: Lost Section (Searches FOUND posts) */}
         {pathname === '/lost' && (
           <LostSection
+            currentUser={currentUser}
             onBackToHome={() => navigate('/')}
             onCreateLostPost={() => navigate('/post/new?type=lost')}
             onSelectPost={(id) => navigate(`/post/${id}`)}
+            onRequireAuth={handleRequireAuth}
           />
         )}
 
+        {/* PUBLIC: Found Section (Searches LOST posts) */}
         {pathname === '/found' && (
           <FoundSection
+            currentUser={currentUser}
             onBackToHome={() => navigate('/')}
             onCreateFoundPost={() => navigate('/post/new?type=found')}
             onSelectPost={(id) => navigate(`/post/${id}`)}
+            onRequireAuth={handleRequireAuth}
           />
         )}
 
-        {isPostNew && postTypeParam === 'found' && (
-          <CreateFoundPost
-            onBackToFound={() => navigate('/found')}
-            onSelectPost={(id) => navigate(`/post/${id}`)}
+        {/* AUTHENTICATION: Login */}
+        {isLogin && (
+          <LoginPage
+            redirectUrl={redirectParam ? decodeURIComponent(redirectParam) : undefined}
+            onSuccess={(target) => navigate(target)}
+            onNavigateToSignup={() => {
+              const redirectSuffix = redirectParam ? `?redirect=${encodeURIComponent(redirectParam)}` : '';
+              navigate(`/auth/signup${redirectSuffix}`);
+            }}
+            onBackToHome={() => navigate('/')}
           />
         )}
 
-        {isPostNew && postTypeParam !== 'found' && (
-          <CreateLostPost
-            onBackToLost={() => navigate('/lost')}
-            onSelectPost={(id) => navigate(`/post/${id}`)}
+        {/* AUTHENTICATION: Signup */}
+        {isSignup && (
+          <SignupPage
+            redirectUrl={redirectParam ? decodeURIComponent(redirectParam) : undefined}
+            onSuccess={(target) => navigate(target)}
+            onNavigateToLogin={() => {
+              const redirectSuffix = redirectParam ? `?redirect=${encodeURIComponent(redirectParam)}` : '';
+              navigate(`/auth/login${redirectSuffix}`);
+            }}
+            onBackToHome={() => navigate('/')}
           />
         )}
 
+        {/* PROTECTED: Create Post (/post/new) */}
+        {isPostNew && (
+          !currentUser ? (
+            // Authentication Guard: Redirects to login preserving intended target
+            <LoginPage
+              redirectUrl={currentUrl}
+              onSuccess={(target) => navigate(target)}
+              onNavigateToSignup={() => navigate(`/auth/signup?redirect=${encodeURIComponent(currentUrl)}`)}
+              onBackToHome={() => navigate(postTypeParam === 'found' ? '/found' : '/lost')}
+            />
+          ) : postTypeParam === 'found' ? (
+            <CreateFoundPost
+              onBackToFound={() => navigate('/found')}
+              onSelectPost={(id) => navigate(`/post/${id}`)}
+            />
+          ) : (
+            <CreateLostPost
+              onBackToLost={() => navigate('/lost')}
+              onSelectPost={(id) => navigate(`/post/${id}`)}
+            />
+          )
+        )}
+
+        {/* PUBLIC: Post Detail View */}
         {isPostDetail && postId && (
           <PostDetail
             postId={postId}
+            currentUser={currentUser}
             onBack={() => navigate(previousSection || '/')}
+            onRequireAuth={handleRequireAuth}
           />
         )}
       </main>

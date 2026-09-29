@@ -13,19 +13,33 @@ import {
 import { Post } from '../types/post';
 import { getPostById } from '../services/postsService';
 
+import { User } from '../types/auth';
+
 interface PostDetailProps {
   postId: string;
+  currentUser: User | null;
   onBack: () => void;
+  onRequireAuth: (targetUrl: string) => void;
 }
 
 export const PostDetail: React.FC<PostDetailProps> = ({
   postId,
+  currentUser,
   onBack,
+  onRequireAuth,
 }) => {
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
   const [requestRequested, setRequestRequested] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const handleRequestClick = () => {
+    if (currentUser) {
+      setRequestRequested(true);
+    } else {
+      onRequireAuth(`/post/${postId}`);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -208,7 +222,7 @@ export const PostDetail: React.FC<PostDetailProps> = ({
 
             {/* Placeholder action: Request conversation */}
             <button
-              onClick={() => setRequestRequested(true)}
+              onClick={handleRequestClick}
               className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-xs transition-colors cursor-pointer"
             >
               <MessageSquare className="w-4 h-4" />

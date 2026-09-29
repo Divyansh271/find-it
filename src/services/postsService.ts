@@ -1,4 +1,5 @@
 import { Post, PostFilterOptions, CreatePostInput } from '../types/post';
+import { getCurrentUser } from './authService';
 
 export const CATEGORIES = [
   'Electronics',
@@ -283,9 +284,10 @@ export async function getPostById(postId: string): Promise<Post | null> {
 export async function createLostPost(input: CreatePostInput): Promise<Post> {
   await new Promise((r) => setTimeout(r, 60));
 
+  const currentUser = getCurrentUser();
   const newPost: Post = {
     post_id: `post-l${Date.now().toString().slice(-4)}`,
-    user_id: 'usr-current-user', // Replaced with auth.uid() in Supabase
+    user_id: currentUser ? currentUser.user_id : 'usr-authenticated-student', // Replaced with auth.uid() in Supabase
     type: 'lost',
     title: input.title.trim(),
     desc_text: input.desc_text.trim(),
@@ -305,9 +307,10 @@ export async function createLostPost(input: CreatePostInput): Promise<Post> {
 export async function createFoundPost(input: CreatePostInput): Promise<Post> {
   await new Promise((r) => setTimeout(r, 60));
 
+  const currentUser = getCurrentUser();
   const newPost: Post = {
     post_id: `post-f${Date.now().toString().slice(-4)}`,
-    user_id: 'usr-current-user', // Replaced with auth.uid() in Supabase
+    user_id: currentUser ? currentUser.user_id : 'usr-authenticated-student', // Replaced with auth.uid() in Supabase
     type: 'found',
     title: input.title.trim(),
     desc_text: input.desc_text.trim(),
