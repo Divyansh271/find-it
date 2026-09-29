@@ -485,6 +485,11 @@ export async function createLostPost(input: CreatePostInput): Promise<Post> {
   if (error) {
     console.error('Supabase createLostPost error:', error);
     if (error.code === '42501') {
+      if (error.message.toLowerCase().includes('row-level security policy') || error.message.toLowerCase().includes('violates')) {
+        throw new Error(
+          'Supabase RLS Policy Error: The "posts" table has Row Level Security enabled but no matching INSERT policy. Please run: CREATE POLICY "Allow insert on posts" ON public.posts FOR INSERT WITH CHECK (true); in your Supabase SQL Editor.'
+        );
+      }
       throw new Error(
         'Database permission error (42501): The "posts" table requires permissions in your Supabase database. Please execute: GRANT ALL ON public.posts TO anon, authenticated; in the Supabase SQL Editor.'
       );
@@ -561,6 +566,11 @@ export async function createFoundPost(input: CreatePostInput): Promise<Post> {
   if (error) {
     console.error('Supabase createFoundPost error:', error);
     if (error.code === '42501') {
+      if (error.message.toLowerCase().includes('row-level security policy') || error.message.toLowerCase().includes('violates')) {
+        throw new Error(
+          'Supabase RLS Policy Error: The "posts" table has Row Level Security enabled but no matching INSERT policy. Please run: CREATE POLICY "Allow insert on posts" ON public.posts FOR INSERT WITH CHECK (true); in your Supabase SQL Editor.'
+        );
+      }
       throw new Error(
         'Database permission error (42501): The "posts" table requires permissions in your Supabase database. Please execute: GRANT ALL ON public.posts TO anon, authenticated; in the Supabase SQL Editor.'
       );
