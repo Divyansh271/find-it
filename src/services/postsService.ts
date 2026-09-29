@@ -446,11 +446,15 @@ export async function createLostPost(input: CreatePostInput): Promise<Post> {
     throw new Error('Please provide an item description.');
   }
 
+  // Get active session user id if available
+  const { data: sessionData } = await supabase.auth.getSession();
+  const effectiveUserId = sessionData?.session?.user?.id || currentUser.user_id;
+
   // Ensure profile exists for FK constraint posts.user_id -> profiles.user_id
   try {
     await supabase.from('profiles').upsert(
       {
-        user_id: currentUser.user_id,
+        user_id: effectiveUserId,
         display_name: currentUser.display_name,
         trust_score: currentUser.trust_score || 0,
       },
@@ -461,8 +465,8 @@ export async function createLostPost(input: CreatePostInput): Promise<Post> {
   }
 
   const payload = {
-    user_id: currentUser.user_id,
-    type: 'lost',
+    user_id: effectiveUserId,
+    type: 'lost' as const,
     title: trimmedTitle,
     desc_text: trimmedDesc,
     images: input.images || [],
@@ -472,40 +476,29 @@ export async function createLostPost(input: CreatePostInput): Promise<Post> {
     appearance: null,
   };
 
-  try {
-    const { data, error } = await supabase
-      .from('posts')
-      .insert(payload)
-      .select()
-      .single();
+  const { data, error } = await supabase
+    .from('posts')
+    .insert(payload)
+    .select()
+    .single();
 
-    if (error) {
-      console.warn(`Supabase createLostPost notice (${error.code}): ${error.message}`);
-      // Fallback post object
-      const fallbackPost: Post = {
-        post_id: `post-l-${Date.now().toString().slice(-6)}`,
-        ...payload,
-        type: 'lost',
-        created_at: new Date().toISOString(),
-      };
-      localCreatedPosts.unshift(fallbackPost);
-      return fallbackPost;
+  if (error) {
+    console.error('Supabase createLostPost error:', error);
+    if (error.code === '42501') {
+      throw new Error(
+        'Database permission error (42501): The "posts" table requires permissions in your Supabase database. Please execute: GRANT ALL ON public.posts TO anon, authenticated; in the Supabase SQL Editor.'
+      );
     }
-
-    const created = data as Post;
-    localCreatedPosts.unshift(created);
-    return created;
-  } catch (err: any) {
-    console.error('Error inserting lost post:', err);
-    const fallbackPost: Post = {
-      post_id: `post-l-${Date.now().toString().slice(-6)}`,
-      ...payload,
-      type: 'lost',
-      created_at: new Date().toISOString(),
-    };
-    localCreatedPosts.unshift(fallbackPost);
-    return fallbackPost;
+    if (error.code === '23503') {
+      throw new Error(
+        'Foreign key error (23503): Your user profile does not exist in the "profiles" table. Please sign up or ensure the profile trigger is active in Supabase.'
+      );
+    }
+    throw new Error(`Failed to save post to Supabase (${error.code}): ${error.message}`);
   }
+
+  const created = data as Post;
+  return created;
 }
 
 /**
@@ -529,11 +522,15 @@ export async function createFoundPost(input: CreatePostInput): Promise<Post> {
     throw new Error('Please provide an item description.');
   }
 
+  // Get active session user id if available
+  const { data: sessionData } = await supabase.auth.getSession();
+  const effectiveUserId = sessionData?.session?.user?.id || currentUser.user_id;
+
   // Ensure profile exists for FK constraint posts.user_id -> profiles.user_id
   try {
     await supabase.from('profiles').upsert(
       {
-        user_id: currentUser.user_id,
+        user_id: effectiveUserId,
         display_name: currentUser.display_name,
         trust_score: currentUser.trust_score || 0,
       },
@@ -544,8 +541,8 @@ export async function createFoundPost(input: CreatePostInput): Promise<Post> {
   }
 
   const payload = {
-    user_id: currentUser.user_id,
-    type: 'found',
+    user_id: effectiveUserId,
+    type: 'found' as const,
     title: trimmedTitle,
     desc_text: trimmedDesc,
     images: input.images || [],
@@ -555,39 +552,29 @@ export async function createFoundPost(input: CreatePostInput): Promise<Post> {
     appearance: null,
   };
 
-  try {
-    const { data, error } = await supabase
-      .from('posts')
-      .insert(payload)
-      .select()
-      .single();
+  const { data, error } = await supabase
+    .from('posts')
+    .insert(payload)
+    .select()
+    .single();
 
-    if (error) {
-      console.warn(`Supabase createFoundPost notice (${error.code}): ${error.message}`);
-      const fallbackPost: Post = {
-        post_id: `post-f-${Date.now().toString().slice(-6)}`,
-        ...payload,
-        type: 'found',
-        created_at: new Date().toISOString(),
-      };
-      localCreatedPosts.unshift(fallbackPost);
-      return fallbackPost;
+  if (error) {
+    console.error('Supabase createFoundPost error:', error);
+    if (error.code === '42501') {
+      throw new Error(
+        'Database permission error (42501): The "posts" table requires permissions in your Supabase database. Please execute: GRANT ALL ON public.posts TO anon, authenticated; in the Supabase SQL Editor.'
+      );
     }
-
-    const created = data as Post;
-    localCreatedPosts.unshift(created);
-    return created;
-  } catch (err: any) {
-    console.error('Error inserting found post:', err);
-    const fallbackPost: Post = {
-      post_id: `post-f-${Date.now().toString().slice(-6)}`,
-      ...payload,
-      type: 'found',
-      created_at: new Date().toISOString(),
-    };
-    localCreatedPosts.unshift(fallbackPost);
-    return fallbackPost;
+    if (error.code === '23503') {
+      throw new Error(
+        'Foreign key error (23503): Your user profile does not exist in the "profiles" table. Please sign up or ensure the profile trigger is active in Supabase.'
+      );
+    }
+    throw new Error(`Failed to save post to Supabase (${error.code}): ${error.message}`);
   }
+
+  const created = data as Post;
+  return created;
 }
 
 // ---------------------------------------------------------------------------

@@ -82,9 +82,9 @@ export const CreateFoundPost: React.FC<CreateFoundPostProps> = ({
 
       setCreatedPost(newPost);
       setSuggestedMatches(matches);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to create found post', err);
-      setError('Something went wrong creating your post. Please try again.');
+      setError(err?.message || 'Something went wrong creating your post. Please try again.');
     } finally {
       setSubmitting(false);
     }

@@ -213,6 +213,13 @@ export async function resendConfirmationEmail(email: string): Promise<void> {
   }
 }
 
+function generateValidUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return '00000000-0000-4000-8000-' + Date.now().toString(16).padStart(12, '0').slice(-12);
+}
+
 export function signInWithDevBypass(email: string, displayName?: string): User {
   const cleanEmail = email.trim().toLowerCase() || 'student@university.edu';
   const emailPrefix = cleanEmail.split('@')[0] || '';
@@ -221,7 +228,7 @@ export function signInWithDevBypass(email: string, displayName?: string): User {
     : 'Campus Student';
 
   const user: User = {
-    user_id: `usr-dev-${Date.now().toString().slice(-6)}`,
+    user_id: generateValidUuid(),
     email: cleanEmail,
     display_name: displayName?.trim() || fallbackName,
     trust_score: 0,
