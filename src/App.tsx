@@ -2,14 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { LandingPage } from './components/LandingPage';
 import { LostSection } from './components/LostSection';
+import { FoundSection } from './components/FoundSection';
 import { CreateLostPost } from './components/CreateLostPost';
+import { CreateFoundPost } from './components/CreateFoundPost';
 import { PostDetail } from './components/PostDetail';
-import { FoundFeedPlaceholder } from './components/FoundFeedPlaceholder';
 
 export default function App() {
   const [currentUrl, setCurrentUrl] = useState(() => {
     return window.location.pathname + window.location.search;
   });
+
+  const [previousSection, setPreviousSection] = useState<string>('/lost');
 
   // Sync route changes with browser history
   useEffect(() => {
@@ -22,6 +25,9 @@ export default function App() {
   }, []);
 
   const navigate = (url: string) => {
+    if (url === '/lost' || url === '/found') {
+      setPreviousSection(url);
+    }
     if (window.location.pathname + window.location.search !== url) {
       window.history.pushState({}, '', url);
     }
@@ -30,7 +36,10 @@ export default function App() {
   };
 
   // Route Resolver
-  const pathname = currentUrl.split('?')[0];
+  const [pathname, search] = currentUrl.split('?');
+  const searchParams = new URLSearchParams(search || '');
+  const postTypeParam = searchParams.get('type');
+
   const isPostNew = pathname === '/post/new';
   const isPostDetail = pathname.startsWith('/post/') && !isPostNew;
   const postId = isPostDetail ? pathname.replace('/post/', '') : null;
@@ -57,7 +66,22 @@ export default function App() {
           />
         )}
 
-        {isPostNew && (
+        {pathname === '/found' && (
+          <FoundSection
+            onBackToHome={() => navigate('/')}
+            onCreateFoundPost={() => navigate('/post/new?type=found')}
+            onSelectPost={(id) => navigate(`/post/${id}`)}
+          />
+        )}
+
+        {isPostNew && postTypeParam === 'found' && (
+          <CreateFoundPost
+            onBackToFound={() => navigate('/found')}
+            onSelectPost={(id) => navigate(`/post/${id}`)}
+          />
+        )}
+
+        {isPostNew && postTypeParam !== 'found' && (
           <CreateLostPost
             onBackToLost={() => navigate('/lost')}
             onSelectPost={(id) => navigate(`/post/${id}`)}
@@ -67,14 +91,7 @@ export default function App() {
         {isPostDetail && postId && (
           <PostDetail
             postId={postId}
-            onBackToLost={() => navigate('/lost')}
-          />
-        )}
-
-        {pathname === '/found' && (
-          <FoundFeedPlaceholder
-            onBackToHome={() => navigate('/')}
-            onNavigateToLost={() => navigate('/lost')}
+            onBack={() => navigate(previousSection || '/')}
           />
         )}
       </main>

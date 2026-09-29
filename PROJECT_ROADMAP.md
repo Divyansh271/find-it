@@ -1,114 +1,158 @@
-# findIt — Architecture & AI Developer Roadmap
+# findIt — Architecture, Code Reference & Developer Roadmap
 
-This document serves as the **source of truth** for developers and AI models (Codex, Claude, Gemini, etc.) working on the **findIt** codebase. Please read this file before implementing new features to maintain architectural consistency.
-
----
-
-## 1. Project Purpose & Core Rules
-
-**findIt** is a campus lost-and-found platform built for university students to report missing or found belongings, connect with the other party through an intentional request-and-accept flow, and coordinate handoffs in real-time chat.
-
-### The Fundamental Mirrored-Feed Rule
-- **`/lost` (Lost section):** Represents a student who **LOST** an item. Therefore, this section searches and displays **FOUND posts** (items that other students have already picked up or turned in).
-- **`/found` (Found section):** Represents a student who **FOUND** an item. Therefore, this section searches and displays **LOST posts** (reports from students missing an item).
-- **Never accidentally reverse this mapping.**
+This document serves as the **master reference** for engineers and AI models (Codex, Claude, Gemini, etc.) developing the **findIt** university lost-and-found platform. Read this file to immediately understand the code structure, data layer functions, endpoints, and future roadmap without wasting context tokens.
 
 ---
 
-## 2. Complete Sitemap & Route Hierarchy
+## 1. Core Product Rule: The Mirrored-Feed Architecture
 
-```text
-/                      → Landing page with prominent "Lost" and "Found" actions
-├── /lost              → Lost section: Search & browse FOUND posts [Implemented]
-├── /found             → Found section: Search & browse LOST posts [Step 1 placeholder]
-├── /post/new          → Create a post (?type=lost [Implemented] or ?type=found [Upcoming])
-│   └── Gemini AI tag extraction step (category, colour, location, appearance)
-│   └── Suggested opposite-type matches shown post-submission
-├── /post/[id]         → Single post detail view with "Request conversation" action
-├── /dashboard         → User dashboard (My posts, My requests, Incoming requests)
-├── /chat/[convo_id]   → Realtime chat (only after a request is accepted)
-└── /profile           → User profile (display name, read-only trust score)
+The application uses an intentional mirrored-feed structure:
+- **`/lost` (Lost Section):** Used by a student who **LOST** an item. It displays and searches **FOUND posts** (`type = 'found'`), because a student missing an item needs to see what others have already found.
+- **`/found` (Found Section):** Used by a student who **FOUND** an item. It displays and searches **LOST posts** (`type = 'lost'`), because a student holding an item needs to find the owner's missing report.
+- **Post-Submission Suggestions:**
+  - After creating a `lost` post → suggest matching `found` posts.
+  - After creating a `found` post → suggest matching `lost` posts.
+- **Never reverse these relationships.**
+
+---
+
+## 2. Complete Application Routes & Sitemaps
+
+| Route | View Component | Status | Description |
+|---|---|---|---|
+| `/` | `LandingPage.tsx` | Completed | Minimal university landing page with prominent "Lost" and "Found" options, plus dummy login/signup buttons. |
+| `/lost` | `LostSection.tsx` | Completed | Searches & filters **FOUND** posts (`type = 'found'`). Multi-filters by Category, Colour, and Location. Includes `+ Create Lost Post` button. |
+| `/found` | `FoundSection.tsx` | Completed | Searches & filters **LOST** posts (`type = 'lost'`). Multi-filters by Category, Colour, and Location. Includes `+ Create Found Post` button. |
+| `/post/new?type=lost` | `CreateLostPost.tsx` | Completed | Collects `title` (required), `desc_text` (required), optional tags, images preview. After submission, displays top suggested **FOUND** matches. |
+| `/post/new?type=found` | `CreateFoundPost.tsx` | Completed | Collects `title` (required), `desc_text` (required), optional tags, images preview. After submission, displays top suggested **LOST** matches. |
+| `/post/[id]` | `PostDetail.tsx` | Completed | Post detail view showing category, colour, location, timestamp, full description, and placeholder `Request conversation` action. |
+| `/auth/signup` | — | Planned | Student signup: display name, university email, password. |
+| `/auth/login` | — | Planned | Student login flow. |
+| `/dashboard` | — | Planned | Tabs: My Posts, My Requests (outgoing), Incoming Requests (accept/decline). |
+| `/chat/[convo_id]` | — | Planned | Realtime chat between `owner_id` and `finder_id` once request is accepted. |
+| `/profile` | — | Planned | Read-only profile with display name and reputation trust score. |
+
+---
+
+## 3. Data Access Layer (DAL) Reference: `src/services/postsService.ts`
+
+All data interactions are strictly abstracted behind asynchronous functions. When Supabase is connected, **only this file will be updated**—the UI components will remain unchanged.
+
+### Types (`src/types/post.ts`)
+```typescript
+export type PostType = 'lost' | 'found';
+
+export interface Post {
+  post_id: string;
+  user_id: string;
+  type: PostType;
+  title: string;
+  desc_text: string;
+  images?: string[];
+  category?: string | null;
+  colour?: string | null;
+  location_text?: string | null;
+  appearance?: Record<string, any> | null;
+  created_at: string;
+}
+
+export interface PostFilterOptions {
+  category?: string;
+  colour?: string;
+  location?: string;
+}
+
+export interface CreatePostInput {
+  title: string;
+  desc_text: string;
+  images?: string[];
+  category?: string;
+  colour?: string;
+  location_text?: string;
+}
+```
+
+### Exported Constants
+- `CATEGORIES`: `['Electronics', 'ID & Cards', 'Keys & Lanyards', 'Bottles & Tumblers', 'Bags & Backpacks', 'Books & Notes', 'Clothing & Accessories', 'Other']`
+- `COLOURS`: `['Black', 'White', 'Blue', 'Red', 'Silver / Grey', 'Green', 'Brown', 'Gold / Yellow', 'Purple', 'Other']`
+
+### Service Functions
+```typescript
+// 1. Found Posts Retrieval (for Lost Section)
+getFoundPosts(): Promise<Post[]>
+searchFoundPosts(query?: string, filters?: PostFilterOptions): Promise<Post[]>
+
+// 2. Lost Posts Retrieval (for Found Section)
+getLostPosts(): Promise<Post[]>
+searchLostPosts(query?: string, filters?: PostFilterOptions): Promise<Post[]>
+
+// 3. Post by ID Lookup
+getPostById(postId: string): Promise<Post | null>
+
+// 4. Post Creation
+createLostPost(input: CreatePostInput): Promise<Post>
+createFoundPost(input: CreatePostInput): Promise<Post>
+
+// 5. Suggested Opposite-Type Matches
+getSuggestedFoundMatches(lostPost: Post): Promise<Post[]>
+getSuggestedLostMatches(foundPost: Post): Promise<Post[]>
 ```
 
 ---
 
-## 3. Database Schema (Target Supabase Postgres)
+## 4. Database Schema (Target: Supabase Postgres)
 
-The project will connect to 4 tables in Supabase Postgres. Status is **never stored** on posts; it is computed at query time from conversations.
+The database consists of 4 relational tables with cascading deletes:
 
-### 3.1 `profiles`
-- `user_id` (uuid, PK, FK → `auth.users.id` ON DELETE CASCADE)
-- `display_name` (text, 2-30 chars, used instead of real names for student safety)
-- `trust_score` (int, default 0, modified **only** via Postgres `SECURITY DEFINER` function on resolved handover)
+### 4.1 `profiles`
+- `user_id` (uuid, PK, references `auth.users.id` ON DELETE CASCADE)
+- `display_name` (text, check length between 2 and 30 characters, student safety)
+- `trust_score` (int, default `0`, modified ONLY via `SECURITY DEFINER` function upon resolved handover)
 - `created_at` (timestamptz, default `now()`)
 
-### 3.2 `posts`
+### 4.2 `posts`
 - `post_id` (uuid, PK)
-- `user_id` (uuid, FK → `profiles.user_id` ON DELETE CASCADE)
-- `type` (text, check `'lost' | 'found'`)
+- `user_id` (uuid, references `profiles.user_id` ON DELETE CASCADE)
+- `type` (text, check constraint `'lost' | 'found'`)
 - `title` (text, required)
-- `desc_text` (text, required free-form input)
-- `images` (text[], storage paths)
-- `category` (text, fixed list: `CATEGORIES` in `src/services/postsService.ts`)
-- `colour` (text, fixed list: `COLOURS` in `src/services/postsService.ts`)
-- `location_text` (text, free-form location)
-- `appearance` (jsonb, optional distinguishing marks)
-- `created_at` (timestamptz)
+- `desc_text` (text, required free-form description)
+- `images` (text[], array of private storage bucket paths)
+- `category` (text, matches `CATEGORIES` list)
+- `colour` (text, matches `COLOURS` list)
+- `location_text` (text, free-form campus building/room)
+- `appearance` (jsonb, extracted distinguishing marks)
+- `created_at` (timestamptz, default `now()`)
+*Note: Post `status` is NEVER stored on disk; it is dynamically computed at query time (Open / Requested / In Chat) based on linked conversations.*
 
-### 3.3 `conversations`
+### 4.3 `conversations`
 - `convo_id` (uuid, PK)
-- `post_id` (uuid, FK → `posts.post_id` ON DELETE CASCADE)
+- `post_id` (uuid, references `posts.post_id` ON DELETE CASCADE)
 - `owner_id` (uuid, role = whoever lost the item)
 - `finder_id` (uuid, role = whoever found the item)
 - `requested_by` (uuid, must equal `owner_id` or `finder_id`)
 - `request_text` (text, optional note)
 - `request_img` (text, optional photo attached to request before chat opens)
-- `accepted` (boolean, default false)
-- `created_at` (timestamptz)
-- *Unique constraint on `(post_id, requested_by)`*
+- `accepted` (boolean, default `false`)
+- `created_at` (timestamptz, default `now()`)
+*Constraint: Unique on `(post_id, requested_by)` prevents duplicate requests from the same user on the same post.*
 
-### 3.4 `messages` (Realtime enabled)
+### 4.4 `messages` (Realtime Enabled)
 - `id` (bigint identity, PK)
-- `convo_id` (uuid, FK → `conversations.convo_id` ON DELETE CASCADE)
-- `sender_id` (uuid, FK → `profiles.user_id`)
-- `msg_text` (text)
-- `msg_img` (text, storage path)
-- `created_at` (timestamptz)
+- `convo_id` (uuid, references `conversations.convo_id` ON DELETE CASCADE)
+- `sender_id` (uuid, references `profiles.user_id`)
+- `msg_text` (text, nullable)
+- `msg_img` (text, storage path, nullable)
+- `created_at` (timestamptz, default `now()`)
+*Constraint: `msg_text IS NOT NULL OR msg_img IS NOT NULL`.*
 
 ---
 
-## 4. Current Code Structure & Data Access Layer
+## 5. Upcoming Implementation Phases
 
-Data access is strictly separated so UI components do not touch raw mock data or future database drivers directly.
-
-```text
-UI Components
-      ↓
-src/services/postsService.ts  (Data Access Layer)
-      ↓
-[Current: In-Memory Mock Store]  ──► [Future: Supabase Client & RLS]
-```
-
-### Key Service Functions in `src/services/postsService.ts`:
-- `getFoundPosts()`: Retrieves all posts where `type === 'found'`.
-- `searchFoundPosts(query, filters)`: Keyword search over title/description/category/colour/location with multi-filters.
-- `getPostById(id)`: Retrieves a single post.
-- `createLostPost(input)`: Validates and appends a `type === 'lost'` post.
-- `getSuggestedFoundMatches(lostPost)`: Calculates match similarity against found posts (category + colour primary, location soft signal). Later replaced with Gemini API.
-
----
-
-## 5. Implementation Status
-
-| Feature / Page | Status | Notes |
-|---|---|---|
-| Landing Page (`/`) | Completed | Clean UI with Lost & Found primary options, dummy auth buttons |
-| Lost Section (`/lost`) | Completed | Searches & filters **FOUND** posts, category/colour/location filters |
-| Create Lost Post (`/post/new?type=lost`) | Completed | Form collecting title, description, optional tags & image preview |
-| Post-Creation Suggested Matches | Completed | Shows top 3 matching found posts upon submitting a lost post |
-| Post Detail View (`/post/[id]`) | Completed | Shows post details, metadata, and "Request conversation" placeholder |
-| Found Section (`/found`) | Pending | Next step: search & browse **LOST** posts |
-| Create Found Post (`/post/new?type=found`) | Pending | Flow for finder creating a found-item post |
-| Supabase Integration | Pending | Auth, Postgres, Storage, RLS policies |
-| Gemini AI Extraction | Pending | Server-side function extracting category, colour, location from `desc_text` |
-| Conversations & Chat | Pending | Request & accept flow, realtime chat, resolution & trust score |
+- [x] **Step 1: Landing Page & Mirrored Navigation** (`/`, `/lost` placeholder, `/found` placeholder, dummy auth buttons)
+- [x] **Step 2: Lost Section** (`/lost` search & filters for FOUND posts, `/post/new?type=lost`, suggested found matches, `/post/:id` detail view)
+- [x] **Step 3: Found Section** (`/found` search & filters for LOST posts, `/post/new?type=found`, suggested lost matches, `/post/:id` detail view)
+- [ ] **Step 4: Supabase Connection & Authentication** (Connect client, sign-up with display name, sign-in, session state)
+- [ ] **Step 5: Gemini AI Tag Extraction** (Extract `category`, `colour`, `location_text`, and `appearance` from `desc_text` for user confirmation before saving)
+- [ ] **Step 6: Request Conversation & Dashboard** (`/dashboard` with incoming/outgoing requests, accept/decline flows)
+- [ ] **Step 7: Realtime Chat & Handover Resolution** (`/chat/[convo_id]`, owner-initiated resolution, `trust_score` increment)

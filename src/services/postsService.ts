@@ -26,6 +26,7 @@ export const COLOURS = [
 
 // In-memory mock database following the schema in §2.2
 let mockPosts: Post[] = [
+  // FOUND POSTS (Searched from /lost)
   {
     post_id: 'post-f101',
     user_id: 'usr-student-201',
@@ -98,31 +99,97 @@ let mockPosts: Post[] = [
     appearance: { brand: 'The North Face', model: 'Borealis' },
     created_at: '2026-09-25T19:40:00Z',
   },
+
+  // LOST POSTS (Searched from /found)
+  {
+    post_id: 'post-l201',
+    user_id: 'usr-student-301',
+    type: 'lost',
+    title: 'MacBook Pro M2 Charger (White 67W USB-C)',
+    desc_text: 'Left plugged into wall outlet near carrel #18 on the 1st floor of Main Library during late study hours. Has braided white cable.',
+    category: 'Electronics',
+    colour: 'White',
+    location_text: 'Main Library 1st Floor Study Carrels',
+    appearance: { wattage: '67W', brand: 'Apple' },
+    created_at: '2026-09-28T17:45:00Z',
+  },
+  {
+    post_id: 'post-l202',
+    user_id: 'usr-student-302',
+    type: 'lost',
+    title: 'Toyota Car Key with Black Leather Fob',
+    desc_text: 'Dropped somewhere between Parking Lot B and Student Services Building. Has black Toyota remote fob, brass apartment key, and tiny red carabiner.',
+    category: 'Keys & Lanyards',
+    colour: 'Black',
+    location_text: 'North Campus Parking Lot B',
+    appearance: { vehicle: 'Toyota', carabiner: 'red' },
+    created_at: '2026-09-28T12:20:00Z',
+  },
+  {
+    post_id: 'post-l203',
+    user_id: 'usr-student-303',
+    type: 'lost',
+    title: 'Student ID Card & Blue Access Keycard',
+    desc_text: 'Misplaced in the Student Union Dining Commons around lunchtime. Name on card is Alex Rivera. Need it to get into my dorm!',
+    category: 'ID & Cards',
+    colour: 'Blue',
+    location_text: 'Student Union Dining Hall',
+    appearance: { name: 'Alex Rivera', card_type: 'Campus ID + RFID' },
+    created_at: '2026-09-27T14:15:00Z',
+  },
+  {
+    post_id: 'post-l204',
+    user_id: 'usr-student-304',
+    type: 'lost',
+    title: 'Olive Green Owala FreeSip Water Bottle (24oz)',
+    desc_text: 'Left on the side bench in Chemistry Lab Room 210. Olive green body with cream-colored lid and Yosemite National Park sticker.',
+    category: 'Bottles & Tumblers',
+    colour: 'Green',
+    location_text: 'Chemistry Lab Building - Room 210',
+    appearance: { brand: 'Owala', sticker: 'Yosemite' },
+    created_at: '2026-09-27T09:30:00Z',
+  },
+  {
+    post_id: 'post-l205',
+    user_id: 'usr-student-305',
+    type: 'lost',
+    title: 'Beats Studio Pro Wireless Headphones (Black)',
+    desc_text: 'Left in zippered black case on top of the locker room cubbies at Student Recreation Center. Has subtle scratch on right ear cup.',
+    category: 'Electronics',
+    colour: 'Black',
+    location_text: 'Student Recreation Center - Locker Room',
+    appearance: { brand: 'Beats', model: 'Studio Pro' },
+    created_at: '2026-09-26T18:00:00Z',
+  },
+  {
+    post_id: 'post-l206',
+    user_id: 'usr-student-306',
+    type: 'lost',
+    title: 'Patagonia Nano Puff Jacket (Navy Blue, Size M)',
+    desc_text: 'Left on seat row D during afternoon economics lecture in Central Auditorium C. Navy blue with small Patagonia logo on left chest.',
+    category: 'Clothing & Accessories',
+    colour: 'Blue',
+    location_text: 'Auditorium Hall C - Row D',
+    appearance: { brand: 'Patagonia', size: 'M' },
+    created_at: '2026-09-25T15:20:00Z',
+  },
 ];
 
 /**
  * Data Access Layer (DAL)
  * Stable interface: UI -> postsService -> dummy implementation
- * Will be swapped with Supabase calls later without rewriting the UI.
+ * Will be swapped with Supabase queries later without rewriting the UI.
  */
 
-// 1. Get all found posts (for the Lost section)
-export async function getFoundPosts(): Promise<Post[]> {
-  // Simulate async delay
-  await new Promise((r) => setTimeout(r, 40));
-  return mockPosts.filter((p) => p.type === 'found');
-}
-
-// 2. Search & filter found posts
-export async function searchFoundPosts(
+// Helper to filter posts by search query and category/colour/location filters
+function filterPosts(
+  posts: Post[],
   query: string = '',
   filters: PostFilterOptions = {}
-): Promise<Post[]> {
-  await new Promise((r) => setTimeout(r, 40));
-  const foundPosts = mockPosts.filter((p) => p.type === 'found');
+): Post[] {
   const normalizedQuery = query.trim().toLowerCase();
 
-  return foundPosts.filter((post) => {
+  return posts.filter((post) => {
     // Keyword search across title, description, category, colour, location
     if (normalizedQuery) {
       const matchTitle = post.title.toLowerCase().includes(normalizedQuery);
@@ -162,20 +229,63 @@ export async function searchFoundPosts(
   });
 }
 
-// 3. Get single post by ID
+// ---------------------------------------------------------------------------
+// 1. FOUND POSTS (For Lost Section: I Lost Something -> browse FOUND posts)
+// ---------------------------------------------------------------------------
+
+export async function getFoundPosts(): Promise<Post[]> {
+  await new Promise((r) => setTimeout(r, 40));
+  return mockPosts.filter((p) => p.type === 'found');
+}
+
+export async function searchFoundPosts(
+  query: string = '',
+  filters: PostFilterOptions = {}
+): Promise<Post[]> {
+  await new Promise((r) => setTimeout(r, 40));
+  const foundPosts = mockPosts.filter((p) => p.type === 'found');
+  return filterPosts(foundPosts, query, filters);
+}
+
+// ---------------------------------------------------------------------------
+// 2. LOST POSTS (For Found Section: I Found Something -> browse LOST posts)
+// ---------------------------------------------------------------------------
+
+export async function getLostPosts(): Promise<Post[]> {
+  await new Promise((r) => setTimeout(r, 40));
+  return mockPosts.filter((p) => p.type === 'lost');
+}
+
+export async function searchLostPosts(
+  query: string = '',
+  filters: PostFilterOptions = {}
+): Promise<Post[]> {
+  await new Promise((r) => setTimeout(r, 40));
+  const lostPosts = mockPosts.filter((p) => p.type === 'lost');
+  return filterPosts(lostPosts, query, filters);
+}
+
+// ---------------------------------------------------------------------------
+// 3. COMMON POST LOOKUP
+// ---------------------------------------------------------------------------
+
 export async function getPostById(postId: string): Promise<Post | null> {
   await new Promise((r) => setTimeout(r, 30));
   const found = mockPosts.find((p) => p.post_id === postId);
   return found ? { ...found } : null;
 }
 
-// 4. Create a new lost post (called from /post/new?type=lost)
+// ---------------------------------------------------------------------------
+// 4. POST CREATION
+// ---------------------------------------------------------------------------
+
+// Create Lost Post (type = 'lost')
 export async function createLostPost(input: CreatePostInput): Promise<Post> {
   await new Promise((r) => setTimeout(r, 60));
 
   const newPost: Post = {
     post_id: `post-l${Date.now().toString().slice(-4)}`,
-    user_id: 'usr-current-user', // Will be replaced by auth.uid() in Supabase
+    user_id: 'usr-current-user', // Replaced with auth.uid() in Supabase
     type: 'lost',
     title: input.title.trim(),
     desc_text: input.desc_text.trim(),
@@ -191,41 +301,77 @@ export async function createLostPost(input: CreatePostInput): Promise<Post> {
   return newPost;
 }
 
-// 5. Get suggested matches for a newly created lost post
-// Matches against FOUND posts by category & colour, with location as soft signal
-export async function getSuggestedFoundMatches(lostPost: Post): Promise<Post[]> {
-  await new Promise((r) => setTimeout(r, 50));
-  const foundPosts = mockPosts.filter((p) => p.type === 'found');
+// Create Found Post (type = 'found')
+export async function createFoundPost(input: CreatePostInput): Promise<Post> {
+  await new Promise((r) => setTimeout(r, 60));
 
-  return foundPosts
-    .map((found) => {
+  const newPost: Post = {
+    post_id: `post-f${Date.now().toString().slice(-4)}`,
+    user_id: 'usr-current-user', // Replaced with auth.uid() in Supabase
+    type: 'found',
+    title: input.title.trim(),
+    desc_text: input.desc_text.trim(),
+    images: input.images || [],
+    category: input.category || null,
+    colour: input.colour || null,
+    location_text: input.location_text || null,
+    appearance: null,
+    created_at: new Date().toISOString(),
+  };
+
+  mockPosts = [newPost, ...mockPosts];
+  return newPost;
+}
+
+// ---------------------------------------------------------------------------
+// 5. OPPOSITE-TYPE SUGGESTED MATCHING
+// ---------------------------------------------------------------------------
+
+// Helper to rank matches of opposite type
+function rankMatches(sourcePost: Post, targetPosts: Post[]): Post[] {
+  return targetPosts
+    .map((candidate) => {
       let score = 0;
-      if (lostPost.category && found.category === lostPost.category) {
+      if (sourcePost.category && candidate.category === sourcePost.category) {
         score += 3; // Primary signal
       }
-      if (lostPost.colour && found.colour === lostPost.colour) {
+      if (sourcePost.colour && candidate.colour === sourcePost.colour) {
         score += 2; // Secondary signal
       }
       if (
-        lostPost.location_text &&
-        found.location_text &&
-        (found.location_text.toLowerCase().includes(lostPost.location_text.toLowerCase()) ||
-          lostPost.location_text.toLowerCase().includes(found.location_text.toLowerCase()))
+        sourcePost.location_text &&
+        candidate.location_text &&
+        (candidate.location_text.toLowerCase().includes(sourcePost.location_text.toLowerCase()) ||
+          sourcePost.location_text.toLowerCase().includes(candidate.location_text.toLowerCase()))
       ) {
         score += 1; // Soft location signal
       }
 
       // Title keyword overlap
-      const lostWords = lostPost.title.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-      const foundTitle = found.title.toLowerCase();
-      for (const word of lostWords) {
-        if (foundTitle.includes(word)) score += 1;
+      const sourceWords = sourcePost.title.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+      const candidateTitle = candidate.title.toLowerCase();
+      for (const word of sourceWords) {
+        if (candidateTitle.includes(word)) score += 1;
       }
 
-      return { post: found, score };
+      return { post: candidate, score };
     })
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 3)
     .map((item) => item.post);
+}
+
+// When creating a LOST post: suggest FOUND posts
+export async function getSuggestedFoundMatches(lostPost: Post): Promise<Post[]> {
+  await new Promise((r) => setTimeout(r, 50));
+  const foundPosts = mockPosts.filter((p) => p.type === 'found');
+  return rankMatches(lostPost, foundPosts);
+}
+
+// When creating a FOUND post: suggest LOST posts (opposite type!)
+export async function getSuggestedLostMatches(foundPost: Post): Promise<Post[]> {
+  await new Promise((r) => setTimeout(r, 50));
+  const lostPosts = mockPosts.filter((p) => p.type === 'lost');
+  return rankMatches(foundPost, lostPosts);
 }

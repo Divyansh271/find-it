@@ -8,7 +8,6 @@ import {
   HelpCircle,
   Tag,
   Palette,
-  ShieldCheck,
   Share2
 } from 'lucide-react';
 import { Post } from '../types/post';
@@ -16,12 +15,12 @@ import { getPostById } from '../services/postsService';
 
 interface PostDetailProps {
   postId: string;
-  onBackToLost: () => void;
+  onBack: () => void;
 }
 
 export const PostDetail: React.FC<PostDetailProps> = ({
   postId,
-  onBackToLost,
+  onBack,
 }) => {
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
@@ -74,11 +73,11 @@ export const PostDetail: React.FC<PostDetailProps> = ({
           The post with ID <code>{postId}</code> does not exist or has already been resolved.
         </p>
         <button
-          onClick={onBackToLost}
+          onClick={onBack}
           className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Return to Lost Feed</span>
+          <span>Return to Feed</span>
         </button>
       </div>
     );
@@ -91,17 +90,17 @@ export const PostDetail: React.FC<PostDetailProps> = ({
       {/* Top bar */}
       <div className="flex items-center justify-between">
         <button
-          onClick={onBackToLost}
+          onClick={onBack}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Lost Feed</span>
+          <span>Back to Feed</span>
         </button>
 
         <div className="flex items-center gap-2">
           <button
             onClick={handleShare}
-            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
             title="Copy link"
           >
             <Share2 className="w-4 h-4" />
@@ -124,7 +123,7 @@ export const PostDetail: React.FC<PostDetailProps> = ({
                   : 'bg-rose-50 text-rose-700 border border-rose-200/60'
               }`}
             >
-              {isFoundPost ? 'Found Post' : 'Lost Post'}
+              {isFoundPost ? 'Found Item Post' : 'Lost Item Report'}
             </span>
             <span className="text-[11px] font-mono text-slate-400">
               {post.post_id}
@@ -142,7 +141,9 @@ export const PostDetail: React.FC<PostDetailProps> = ({
             <div className="flex items-start gap-2 text-slate-700">
               <MapPin className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
               <div>
-                <span className="font-semibold block text-slate-900">Location</span>
+                <span className="font-semibold block text-slate-900">
+                  {isFoundPost ? 'Found Location' : 'Suspected Lost Location'}
+                </span>
                 <span>{post.location_text}</span>
               </div>
             </div>
@@ -151,7 +152,7 @@ export const PostDetail: React.FC<PostDetailProps> = ({
           <div className="flex items-start gap-2 text-slate-700">
             <Calendar className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
             <div>
-              <span className="font-semibold block text-slate-900">Posted On</span>
+              <span className="font-semibold block text-slate-900">Reported Date</span>
               <span>
                 {new Date(post.created_at).toLocaleDateString(undefined, {
                   month: 'long',
@@ -200,7 +201,9 @@ export const PostDetail: React.FC<PostDetailProps> = ({
         <div className="pt-4 border-t border-slate-100 space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-xs text-slate-500">
-              Is this your missing belonging?
+              {isFoundPost
+                ? 'Is this your missing item?'
+                : 'Did you find this student\'s item?'}
             </div>
 
             {/* Placeholder action: Request conversation */}
@@ -219,7 +222,7 @@ export const PostDetail: React.FC<PostDetailProps> = ({
               <div>
                 <p className="font-semibold">Conversation Request Placeholder</p>
                 <p className="text-[11px] text-indigo-700 mt-0.5">
-                  The request flow (creating a <code>conversations</code> record with optional photo attachment before chat acceptance) will be connected when Supabase is introduced in the upcoming step.
+                  The request flow (creating a <code>conversations</code> record with optional photo attachment before chat acceptance) will connect to Supabase in an upcoming step.
                 </p>
               </div>
             </div>
