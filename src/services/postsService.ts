@@ -425,6 +425,17 @@ export async function getPostById(postId: string): Promise<Post | null> {
 // 4. POST CREATION
 // ---------------------------------------------------------------------------
 
+function generateUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 /**
  * Creates a LOST post in Supabase PostgreSQL (type = 'lost').
  * Must be created by the currently authenticated user.
@@ -465,6 +476,7 @@ export async function createLostPost(input: CreatePostInput): Promise<Post> {
   }
 
   const payload = {
+    post_id: generateUuid(),
     user_id: effectiveUserId,
     type: 'lost' as const,
     title: trimmedTitle,
@@ -474,6 +486,7 @@ export async function createLostPost(input: CreatePostInput): Promise<Post> {
     colour: input.colour || null,
     location_text: input.location_text ? input.location_text.trim() : null,
     appearance: null,
+    created_at: new Date().toISOString(),
   };
 
   const { data, error } = await supabase
@@ -492,6 +505,11 @@ export async function createLostPost(input: CreatePostInput): Promise<Post> {
       }
       throw new Error(
         'Database permission error (42501): The "posts" table requires permissions in your Supabase database. Please execute: GRANT ALL ON public.posts TO anon, authenticated; in the Supabase SQL Editor.'
+      );
+    }
+    if (error.code === '23502') {
+      throw new Error(
+        `Database constraint error (23502): ${error.message}. Please execute: ALTER TABLE public.posts ALTER COLUMN post_id SET DEFAULT gen_random_uuid(); in your Supabase SQL Editor.`
       );
     }
     if (error.code === '23503') {
@@ -546,6 +564,7 @@ export async function createFoundPost(input: CreatePostInput): Promise<Post> {
   }
 
   const payload = {
+    post_id: generateUuid(),
     user_id: effectiveUserId,
     type: 'found' as const,
     title: trimmedTitle,
@@ -555,6 +574,7 @@ export async function createFoundPost(input: CreatePostInput): Promise<Post> {
     colour: input.colour || null,
     location_text: input.location_text ? input.location_text.trim() : null,
     appearance: null,
+    created_at: new Date().toISOString(),
   };
 
   const { data, error } = await supabase
@@ -573,6 +593,11 @@ export async function createFoundPost(input: CreatePostInput): Promise<Post> {
       }
       throw new Error(
         'Database permission error (42501): The "posts" table requires permissions in your Supabase database. Please execute: GRANT ALL ON public.posts TO anon, authenticated; in the Supabase SQL Editor.'
+      );
+    }
+    if (error.code === '23502') {
+      throw new Error(
+        `Database constraint error (23502): ${error.message}. Please execute: ALTER TABLE public.posts ALTER COLUMN post_id SET DEFAULT gen_random_uuid(); in your Supabase SQL Editor.`
       );
     }
     if (error.code === '23503') {
